@@ -316,13 +316,28 @@ const handleConfirmBooking = async () => {
 
         <div v-else-if="currentStep === 2" key="step2" class="flex flex-col w-full">
           <div class="flex justify-center w-full mb-8">
-            <button @click="openDatePicker" class="bg-[#EBEBEB] text-gray-800 px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-gray-200 transition-colors shadow-sm relative">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-              <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
-              <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-              <input type="date" ref="dateInputRef" v-model="selectedDate" :min="today" :max="maxDate" class="absolute inset-0 opacity-0 pointer-events-none w-full h-full" tabindex="-1" />
-            </button>
-          </div>
+  <div class="relative group">
+    
+    <button type="button" class="bg-[#EBEBEB] text-gray-800 px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 group-hover:bg-gray-200 transition-colors shadow-sm">
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+      </svg>
+      <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
+      <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+      </svg>
+    </button>
+
+    <input 
+      type="date" 
+      v-model="selectedDate" 
+      :min="today" 
+      :max="maxDate" 
+      class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      @click="(e) => (e.target as any).showPicker?.()"
+    />
+  </div>
+</div>
 
           <div class="flex flex-col lg:flex-row gap-8 items-start w-full">
             <div class="flex-grow w-full overflow-hidden">
