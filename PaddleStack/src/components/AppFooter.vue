@@ -1,7 +1,13 @@
+<script setup lang="ts">
+import footerLogo from '@/assets/images/footerlogo.svg'
+</script>
+
 <template>
   <footer class="bg-white border-t border-gray-100 py-16 px-6 md:px-16">
     <div class="max-w-7xl mx-auto flex flex-col items-center justify-center text-center gap-8">
       
+      <img :src="footerLogo" alt="PaddleStack Logo" class="h-10 md:h-12 w-auto" />
+
       <p class="text-gray-600 text-lg">
         Contact this email: 
         <a href="mailto:Paddlestack.cebu@gmail.com" class="text-gray-900 font-bold hover:text-[#A9FC24] transition-colors">
@@ -29,11 +35,7 @@
           </svg>
         </a>
 
-
       </div>
     </div>
   </footer>
 </template>
-
-<script setup lang="ts">
-</script>
