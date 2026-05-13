@@ -10,6 +10,7 @@ import bpiQR from '@/assets/payment/bpi.jpg'
 const router = useRouter()
 const currentStep = ref(1)
 const isSubmitting = ref(false)
+const isReceiptModalOpen = ref(false)
 
 const formData = reactive({
   fullName: '',
@@ -63,28 +64,19 @@ const getMaxDateString = () => {
 const maxDate = getMaxDateString()
 
 const selectedDate = ref(today)
-const dateInputRef = ref<HTMLInputElement | null>(null)
 
 const displayDate = computed(() => {
   if (selectedDate.value === today) return 'TODAY'
-  const parts = selectedDate.value.split('-') as [string, string, string] // TS FIX
+  const parts = selectedDate.value.split('-') as [string, string, string]
   const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
   return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
 })
 
 const fullFormattedDate = computed(() => {
-  const parts = selectedDate.value.split('-') as [string, string, string] // TS FIX
+  const parts = selectedDate.value.split('-') as [string, string, string]
   const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
   return dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 })
-
-const openDatePicker = () => {
-  const el = dateInputRef.value as any;
-  if (el) {
-    if (el.showPicker) el.showPicker();
-    else el.click();
-  }
-}
 
 // --- SUPABASE FETCHING & MASKING LOGIC ---
 const publicBookings = ref<any[]>([])
@@ -126,7 +118,18 @@ const scheduleGrid = computed(() => {
       const isTaken = publicBookings.value.some(b => b.court === court && b.time_slot === time)
       const status = isTaken ? 'booked' : 'available'
       const label = isTaken ? 'Booked' : ''
-      return { id: `${court}-${time}`, court, time, price, status, label }
+      const id = `${selectedDate.value}-${court}-${time}`
+      
+      return { 
+        id, 
+        date: selectedDate.value, 
+        formattedDate: fullFormattedDate.value, 
+        court, 
+        time, 
+        price, 
+        status, 
+        label 
+      }
     })
 
     activeRows.push({ timeLabel: time, slots })
@@ -153,17 +156,20 @@ const removeSlot = (slotId: string) => {
 const totalPrice = computed(() => selectedSlots.value.reduce((sum, slot) => sum + slot.price, 0))
 const uniqueCourtsCount = computed(() => new Set(selectedSlots.value.map(s => s.court)).size)
 
+const groupedSlots = computed(() => {
+  const groups: Record<string, any[]> = {}
+  selectedSlots.value.forEach(slot => {
+    const dateKey = slot.formattedDate
+    const group = groups[dateKey] || []
+    group.push(slot)
+    groups[dateKey] = group
+  })
+  return groups
+})
+
 const paymentMethods = [
-  {
-    name: 'GCash - Rico F.',
-    number: '0935-***-4647',
-    qr: gcashQR
-  },
-  {
-    name: 'Maya - Rico F.',
-    number: '0935-***-4647',
-    qr: bpiQR
-  }
+  { name: 'GCash - Rico F.', number: '0935-***-4647', qr: gcashQR },
+  { name: 'BPI - Rico F.', number: '0935-***-4647', qr: bpiQR }
 ]
 const currentQrIndex = ref(0)
 const nextQr = () => currentQrIndex.value = (currentQrIndex.value + 1) % paymentMethods.length
@@ -187,27 +193,30 @@ const handleFileChange = (event: Event) => {
 }
 
 const handleConfirmBooking = async () => {
-  if (selectedSlots.value.length === 0 || !receiptFile.value) return
+  const currentFile = receiptFile.value
+  if (selectedSlots.value.length === 0 || !currentFile) return
   
   isSubmitting.value = true
 
   try {
-    const fileExt = receiptFile.value.name.split('.').pop()
+    const fileExt = currentFile.name.split('.').pop()
     const fileName = `${Math.random().toString(36).substring(2, 10)}.${fileExt}`
     const filePath = `receipts/${fileName}`
 
-    const { error: uploadError } = await supabase.storage.from('receipts').upload(filePath, receiptFile.value)
+    const { error: uploadError } = await supabase.storage.from('receipts').upload(filePath, currentFile)
     if (uploadError) throw uploadError
 
-    const { data: { publicUrl } } = supabase.storage.from('receipts').getPublicUrl(filePath)
+    const { data } = supabase.storage.from('receipts').getPublicUrl(filePath)
+    const publicUrl = data.publicUrl
 
     const referenceCode = 'REF-' + Math.random().toString(36).substring(2, 8).toUpperCase()
+    
     const rowsToInsert = selectedSlots.value.map(slot => ({
       booking_reference: referenceCode,
       full_name: formData.fullName,
       email: formData.email,
       phone: formData.phone,
-      booking_date: selectedDate.value,
+      booking_date: slot.date, 
       court: slot.court,
       time_slot: slot.time,
       price: slot.price,
@@ -235,8 +244,17 @@ const handleConfirmBooking = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-white flex flex-col font-sans">
+  <div class="min-h-screen bg-white flex flex-col font-sans relative">
     
+    <div v-if="isReceiptModalOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" @click="isReceiptModalOpen = false">
+      <div class="relative max-w-2xl max-h-[90vh] w-full flex justify-center">
+        <button @click="isReceiptModalOpen = false" class="absolute -top-12 right-0 text-white hover:text-gray-300 transition-colors">
+          <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+        <img v-if="receiptPreview" :src="receiptPreview" class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" @click.stop />
+      </div>
+    </div>
+
     <header class="flex justify-between items-center px-6 md:px-16 py-4 border-b border-gray-200">
       <RouterLink to="/">
         <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
@@ -316,28 +334,26 @@ const handleConfirmBooking = async () => {
 
         <div v-else-if="currentStep === 2" key="step2" class="flex flex-col w-full">
           <div class="flex justify-center w-full mb-8">
-  <div class="relative group">
-    
-    <button type="button" class="bg-[#EBEBEB] text-gray-800 px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 group-hover:bg-gray-200 transition-colors shadow-sm">
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-      </svg>
-      <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
-      <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-      </svg>
-    </button>
-
-    <input 
-      type="date" 
-      v-model="selectedDate" 
-      :min="today" 
-      :max="maxDate" 
-      class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-      @click="(e) => (e.target as any).showPicker?.()"
-    />
-  </div>
-</div>
+            <div class="relative group">
+              <button type="button" class="bg-[#EBEBEB] text-gray-800 px-8 py-3.5 rounded-xl font-bold flex items-center justify-center gap-3 group-hover:bg-gray-200 transition-colors shadow-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
+                <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+              <input 
+                type="date" 
+                v-model="selectedDate" 
+                :min="today" 
+                :max="maxDate" 
+                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                @click="(e) => (e.target as any).showPicker?.()"
+              />
+            </div>
+          </div>
 
           <div class="flex flex-col lg:flex-row gap-8 items-start w-full">
             <div class="flex-grow w-full overflow-hidden">
@@ -383,18 +399,20 @@ const handleConfirmBooking = async () => {
               <div class="bg-[#1C1C1C] rounded-2xl p-6 shadow-xl flex flex-col mb-4 min-h-[300px]">
                 <h3 class="text-white text-xl font-bold text-center mb-6">Selected Slots</h3>
                 <div v-if="selectedSlots.length === 0" class="text-gray-400 text-center py-10 text-sm flex-grow">Tap an available court time<br/>to add it to your booking.</div>
+                
                 <div class="flex flex-col gap-5 mb-8 flex-grow">
                   <div v-for="slot in selectedSlots" :key="slot.id" class="flex items-center justify-between">
                     <div class="flex items-center gap-4">
                       <button @click="removeSlot(slot.id)" class="text-red-500 hover:text-red-400 font-bold transition-colors">X</button>
                       <div class="flex flex-col">
                         <span class="text-white font-bold text-sm tracking-wide">{{ slot.court }}</span>
-                        <span class="text-gray-300 text-xs mt-0.5">{{ slot.time }}</span>
+                        <span class="text-gray-300 text-xs mt-0.5">{{ slot.formattedDate.split(',')[1] }} | {{ slot.time }}</span>
                       </div>
                     </div>
                     <span class="text-white font-bold text-sm">₱{{ slot.price }}</span>
                   </div>
                 </div>
+                
                 <div class="bg-[#F5F5F5] rounded-xl px-5 py-4 flex justify-between items-center mt-auto">
                   <span class="text-black font-bold">Total:</span>
                   <span class="text-black font-bold">₱{{ totalPrice }}</span>
@@ -416,6 +434,7 @@ const handleConfirmBooking = async () => {
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
             <div class="flex flex-col gap-6 lg:gap-8">
+              
               <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg flex flex-col gap-6">
                 <h3 class="text-white text-sm font-bold tracking-widest uppercase">Booking Summary</h3>
                 <div class="bg-white rounded-2xl p-6 shadow-sm">
@@ -424,13 +443,18 @@ const handleConfirmBooking = async () => {
                   <p class="text-gray-900 font-medium text-lg underline decoration-gray-400 underline-offset-4">{{ formData.email }}</p>
                   <p class="text-gray-900 font-medium text-lg mt-1">{{ formData.phone }}</p>
                 </div>
+                
                 <div class="bg-white rounded-2xl p-6 shadow-sm">
-                  <h4 class="text-gray-900 font-bold mb-1 uppercase tracking-wide text-sm">Booking Details</h4>
-                  <p class="text-gray-500 text-sm font-medium mb-4">{{ fullFormattedDate }}</p>
-                  <div class="flex flex-col gap-4">
-                    <div v-for="slot in selectedSlots" :key="slot.id">
-                      <p class="text-gray-900 font-bold text-lg">{{ slot.court }}</p>
-                      <p class="text-gray-900 font-medium">{{ slot.time }}</p>
+                  <h4 class="text-gray-900 font-bold mb-5 uppercase tracking-wide text-sm border-b border-gray-100 pb-2">Itinerary</h4>
+                  
+                  <div class="flex flex-col gap-5">
+                    <div v-for="(slots, dateStr) in groupedSlots" :key="dateStr" class="flex flex-col gap-3">
+                      <p class="text-[#A9FC24] text-xs font-bold tracking-widest uppercase bg-[#1C1C1C] px-3 py-1 rounded-md self-start">{{ dateStr }}</p>
+                      <div class="flex flex-col gap-2 pl-2 border-l-2 border-gray-100">
+                        <div v-for="slot in slots" :key="slot.id" class="flex justify-between items-center">
+                          <p class="text-gray-900 font-bold text-md">{{ slot.court }} <span class="text-gray-500 font-medium text-sm ml-2">{{ slot.time }}</span></p>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -439,17 +463,19 @@ const handleConfirmBooking = async () => {
               <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg flex flex-col min-h-[300px]">
                 <h3 class="text-white text-sm font-bold tracking-widest uppercase mb-8">Payment Breakdown</h3>
                 <div class="flex flex-col gap-6 flex-grow">
-                  <div v-for="slot in selectedSlots" :key="'breakdown'+slot.id" class="flex justify-between items-start">
-                    <div>
-                      <p class="text-white font-bold text-xl">{{ slot.court }}</p>
-                      <p class="text-gray-300 text-sm mt-1">{{ slot.time }}</p>
+                  
+                  <div v-for="(slots, dateStr) in groupedSlots" :key="'breakdown-'+dateStr" class="flex flex-col gap-4">
+                    <p class="text-gray-400 text-xs font-bold tracking-widest uppercase border-b border-gray-700 pb-1">{{ dateStr }}</p>
+                    <div v-for="slot in slots" :key="'p-'+slot.id" class="flex justify-between items-center">
+                      <p class="text-white font-medium text-lg">{{ slot.court }} <span class="text-gray-400 text-sm ml-2">{{ slot.time }}</span></p>
+                      <p class="text-white font-bold text-lg">₱{{ slot.price }}</p>
                     </div>
-                    <p class="text-white font-bold text-xl">₱{{ slot.price }}</p>
                   </div>
+
                 </div>
                 <div class="flex justify-between items-center pt-8 mt-4 border-t border-gray-700">
                   <p class="text-white font-medium">Total:</p>
-                  <p class="text-white font-bold text-xl">₱{{ totalPrice }}</p>
+                  <p class="text-[#A9FC24] font-bold text-2xl tracking-tight">₱{{ totalPrice }}</p>
                 </div>
               </div>
             </div>
@@ -479,25 +505,45 @@ const handleConfirmBooking = async () => {
               </div>
 
               <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg">
-                <h3 class="text-white text-sm font-bold tracking-widest uppercase">Upload Payment Receipt</h3>
-                <p class="text-gray-400 text-sm mt-1 mb-6">Upload payment receipt here</p>
+                <h3 class="text-white text-sm font-bold tracking-widest uppercase mb-6">Upload Payment Receipt</h3>
+                
                 <input type="file" ref="fileInputRef" @change="handleFileChange" accept="image/*" class="hidden" />
-                <div @click="triggerFileInput" class="w-full bg-[#D9D9D9] hover:bg-[#EBEBEB] transition-colors rounded-2xl border-4 border-dashed border-gray-400 flex flex-col items-center justify-center p-8 cursor-pointer h-48 overflow-hidden relative">
+                
+                <div class="w-full bg-[#D9D9D9] rounded-2xl border-4 border-dashed border-gray-400 p-3 h-48 relative overflow-hidden transition-colors" :class="!receiptPreview ? 'hover:bg-[#EBEBEB]' : ''">
+                  
                   <template v-if="!receiptPreview">
-                    <svg class="w-10 h-10 text-gray-800 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                    <span class="text-gray-800 font-bold text-sm tracking-wide">TAP TO UPLOAD RECEIPT</span>
+                    <div @click="triggerFileInput" class="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                      <svg class="w-10 h-10 text-gray-800 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                      <span class="text-gray-800 font-bold text-sm tracking-wide">TAP TO UPLOAD RECEIPT</span>
+                    </div>
                   </template>
+
                   <template v-else>
-                    <img :src="receiptPreview" class="absolute inset-0 w-full h-full object-cover opacity-60" />
-                    <div class="z-10 bg-white/90 px-4 py-2 rounded-lg font-bold text-gray-800 text-sm flex items-center gap-2"><svg class="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg> Receipt Attached (Tap to change)</div>
+                    <div class="w-full h-full flex items-center gap-4 bg-white p-3 rounded-xl border border-gray-200 shadow-inner">
+                      <img :src="receiptPreview" class="h-full w-28 object-cover rounded-lg border border-gray-300" />
+                      
+                      <div class="flex flex-col flex-grow gap-2 pr-2">
+                        <span class="text-gray-800 font-bold text-sm flex items-center gap-1.5 mb-1">
+                          <svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>
+                          Receipt Attached
+                        </span>
+                        
+                        <button @click="isReceiptModalOpen = true" class="bg-[#1C1C1C] text-white py-2 rounded-lg text-xs font-bold hover:bg-black transition-colors w-full">
+                          View Full Image
+                        </button>
+                        
+                        <button @click="triggerFileInput" class="bg-gray-200 text-gray-800 py-2 rounded-lg text-xs font-bold hover:bg-gray-300 transition-colors w-full">
+                          Change Receipt
+                        </button>
+                      </div>
+                    </div>
                   </template>
                 </div>
               </div>
 
               <div class="flex flex-col items-center mt-6 mb-8 text-center">
                 <p class="text-gray-800 font-bold text-lg">{{ selectedSlots.length }} Slots - {{ uniqueCourtsCount }} Courts</p>
-                <p class="text-black font-bold text-[56px] leading-tight mb-6 tracking-tight">₱{{ totalPrice }}</p>
-                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile" class="bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3" :class="receiptFile && !isSubmitting ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
+                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile" class="mt-4 bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3" :class="receiptFile && !isSubmitting ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
                   {{ isSubmitting ? 'Processing...' : 'Confirm Reservation' }}
                 </button>
                 <p class="text-gray-800 font-bold text-sm mt-6">Confirmation sent once approved by staff</p>
