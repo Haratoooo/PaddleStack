@@ -111,10 +111,24 @@ const scheduleGrid = computed(() => {
     const startHour = 8 + timeIdx; 
     
     if (isToday && currentHour >= startHour) return;
-
-    const price = timeIdx >= 7 ? 500 : 450;
     
     const slots = courts.map((court) => {
+      let price = 0;
+      const isLate = timeIdx >= 7; 
+      
+      if (selectedDate.value >= '2026-06-04') {
+        price = isLate ? 550 : 500;
+      } else if (selectedDate.value >= '2026-05-28' && selectedDate.value <= '2026-06-03') {
+        if (court === 'COURT 3' || court === 'COURT 4') {
+          price = isLate ? 550 : 500;
+        } else {
+          price = isLate ? 500 : 450;
+        }
+      } else {
+
+        price = isLate ? 400 : 300;
+      }
+
       const isTaken = publicBookings.value.some(b => b.court === court && b.time_slot === time)
       const status = isTaken ? 'booked' : 'available'
       const label = isTaken ? 'Booked' : ''

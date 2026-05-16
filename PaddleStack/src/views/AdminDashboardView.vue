@@ -7,8 +7,11 @@ import darkLogo from '@/assets/images/footerlogo.svg'
 const router = useRouter()
 
 const bookings = ref<any[]>([])
-const globalPendingList = ref<any[]>([]) 
+const globalPendingGroups = ref<any[]>([]) 
 const isLoading = ref(true)
+
+const selectedForBlocking = ref<any[]>([])
+const isBlocking = ref(false)
 
 const getLocalDateString = (d = new Date()) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -16,14 +19,8 @@ const getLocalDateString = (d = new Date()) => {
 
 const today = getLocalDateString()
 
-const getMaxDateString = () => {
-  const d = new Date()
-  d.setMonth(d.getMonth() + 2)
-  return getLocalDateString(d)
-}
-const maxDate = getMaxDateString()
-
-const selectedDate = ref(today)
+const savedDate = sessionStorage.getItem('paddleAdminDate')
+const selectedDate = ref(savedDate || today)
 
 const displayDate = computed(() => {
   if (selectedDate.value === today) return 'TODAY'
@@ -31,7 +28,6 @@ const displayDate = computed(() => {
   const dateObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
   return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase()
 })
-
 
 const fetchGlobalPending = async () => {
   const { data, error } = await supabase
@@ -41,7 +37,24 @@ const fetchGlobalPending = async () => {
     .order('created_at', { ascending: true }) 
 
   if (!error && data) {
-    globalPendingList.value = data
+    const groups: Record<string, any> = {}
+    data.forEach(req => {
+      const refCode = req.booking_reference || req.id 
+      if (!groups[refCode]) {
+        groups[refCode] = {
+          reference: refCode,
+          full_name: req.full_name,
+          created_at: req.created_at,
+          slots: [],
+          totalPrice: 0
+        }
+      }
+      groups[refCode].slots.push(req)
+      groups[refCode].totalPrice += req.price || 0
+    })
+    globalPendingGroups.value = Object.values(groups).sort((a, b) => 
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
   }
 }
 
@@ -53,11 +66,8 @@ const fetchDailyBookings = async () => {
     .eq('booking_date', selectedDate.value)
     .neq('status', 'Declined')
 
-  if (error) {
-    console.error('Error fetching bookings:', error)
-  } else {
-    bookings.value = data || []
-  }
+  if (error) console.error('Error fetching bookings:', error)
+  else bookings.value = data || []
   isLoading.value = false
 }
 
@@ -67,7 +77,10 @@ const formatPendingDate = (dateStr: string) => {
   return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-watch(selectedDate, fetchDailyBookings)
+watch(selectedDate, (newDate) => {
+  sessionStorage.setItem('paddleAdminDate', newDate)
+  fetchDailyBookings()
+})
 
 onMounted(() => {
   fetchGlobalPending()
@@ -91,16 +104,57 @@ const getSlotData = (court: string, time: string) => {
   return { status: 'Available', court: court, time_slot: time }
 }
 
-const handleSlotClick = (slotData: any, forceDate?: string) => {
+const isSelectedForBlocking = (court: string, time: string) => {
+  return selectedForBlocking.value.some(s => s.court === court && s.time_slot === time && s.date === selectedDate.value)
+}
 
-  const targetDate = forceDate || selectedDate.value
+const handleSlotClick = (slotData: any) => {
+  if (slotData.status === 'Available' || slotData.status === undefined) {
+    const idx = selectedForBlocking.value.findIndex(s => s.court === slotData.court && s.time_slot === slotData.time_slot && s.date === selectedDate.value)
+    
+    if (idx > -1) selectedForBlocking.value.splice(idx, 1)
+    else selectedForBlocking.value.push({ court: slotData.court, time_slot: slotData.time_slot, date: selectedDate.value })
+    return
+  }
+
   router.push({
     path: '/admin/slot', 
-    query: {
-      court: slotData.court || slotData, 
-      time: slotData.time_slot || slotData.time,
-      date: targetDate
-    }
+    query: { court: slotData.court, time: slotData.time_slot, date: selectedDate.value }
+  })
+}
+
+const confirmBlockMultiple = async () => {
+  if (selectedForBlocking.value.length === 0) return
+  isBlocking.value = true
+
+  const rowsToInsert = selectedForBlocking.value.map(slot => ({
+    booking_reference: 'ADMIN_BLOCK',
+    full_name: 'Admin Blocked',
+    email: 'N/A',
+    phone: 'N/A',
+    booking_date: slot.date,
+    court: slot.court,
+    time_slot: slot.time_slot,
+    price: 0,
+    status: 'Blocked'
+  }))
+
+  const { error } = await supabase.from('bookings').insert(rowsToInsert)
+  
+  if (!error) {
+    selectedForBlocking.value = [] 
+    await fetchDailyBookings() 
+  } else {
+    console.error("Error blocking slots:", error)
+    alert("Failed to block slots.")
+  }
+  isBlocking.value = false
+}
+
+const handleGroupClick = (group: any) => {
+  router.push({
+    path: '/admin/slot', 
+    query: { ref: group.reference }
   })
 }
 
@@ -113,27 +167,41 @@ const handleLogout = async () => {
 <template>
   <div class="min-h-screen bg-[#F8F9FA] font-sans text-gray-800 pb-20">
     
-    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-50">
+    <transition name="slide-up">
+      <div v-if="selectedForBlocking.length > 0" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-[#1C1C1C] text-white px-6 py-4 rounded-full shadow-2xl z-50 flex items-center gap-6 border border-gray-700">
+        <span class="font-bold whitespace-nowrap">{{ selectedForBlocking.length }} Slot(s) Selected</span>
+        <div class="flex items-center gap-3">
+          <button @click="confirmBlockMultiple" :disabled="isBlocking" class="bg-red-500 text-white px-6 py-2 rounded-full font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
+            {{ isBlocking ? 'Blocking...' : 'Block Courts' }}
+          </button>
+          <button @click="selectedForBlocking = []" class="text-gray-400 hover:text-white font-medium p-2 rounded-full hover:bg-gray-800 transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+      </div>
+    </transition>
+
+    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-40">
       <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
       <button @click="handleLogout" class="text-gray-600 hover:text-black font-medium transition-colors">
         Logout
       </button>
     </header>
 
-    <main class="max-w-[1600px] mx-auto px-4 mt-8">
+    <main class="max-w-[1600px] mx-auto px-4 mt-8 relative">
       
       <div class="flex flex-col xl:flex-row gap-8 items-start">
 
         <div class="w-full xl:w-[400px] shrink-0 flex flex-col gap-4">
           <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col h-[600px] sticky top-24">
             <div class="flex justify-between items-center mb-6">
-              <h2 class="text-xl font-bold text-gray-900 tracking-tight">Recent Requests</h2>
-              <span v-if="globalPendingList.length > 0" class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
-                {{ globalPendingList.length }} New
+              <h2 class="text-xl font-bold text-gray-900 tracking-tight">Recent Orders</h2>
+              <span v-if="globalPendingGroups.length > 0" class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
+                {{ globalPendingGroups.length }} New
               </span>
             </div>
 
-            <div v-if="globalPendingList.length === 0" class="flex-grow flex flex-col items-center justify-center text-center opacity-50">
+            <div v-if="globalPendingGroups.length === 0" class="flex-grow flex flex-col items-center justify-center text-center opacity-50">
               <svg class="w-16 h-16 mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
               <p class="font-bold text-lg">All caught up!</p>
               <p class="text-sm">No pending bookings.</p>
@@ -141,30 +209,39 @@ const handleLogout = async () => {
 
             <div v-else class="flex-grow overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3">
               <div 
-                v-for="req in globalPendingList" 
-                :key="req.id"
-                @click="handleSlotClick(req, req.booking_date)"
-                class="bg-[#F8F9FA] hover:bg-gray-100 transition-colors p-4 rounded-2xl cursor-pointer border border-gray-200 group"
+                v-for="group in globalPendingGroups" 
+                :key="group.reference"
+                @click="handleGroupClick(group)"
+                class="bg-[#F8F9FA] hover:bg-gray-100 transition-colors p-4 rounded-2xl cursor-pointer border border-gray-200 group relative overflow-hidden"
               >
-                <div class="flex justify-between items-start mb-2">
-                  <p class="font-bold text-gray-900 text-sm truncate pr-2">{{ req.full_name }}</p>
-                  <span class="text-xs font-bold text-red-500 bg-red-50 px-2 py-0.5 rounded uppercase tracking-wider">Pending</span>
+                <div class="absolute top-0 right-0 bg-[#A9FC24] text-black text-[10px] font-bold px-2 py-1 rounded-bl-lg">
+                  {{ group.slots.length }} SLOT{{ group.slots.length > 1 ? 'S' : '' }}
                 </div>
-                <div class="text-xs text-gray-500 flex flex-col gap-1 font-medium">
-                  <p class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> {{ formatPendingDate(req.booking_date) }}</p>
-                  <p class="flex items-center gap-1.5"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> {{ req.time_slot }}</p>
-                  <p class="flex items-center gap-1.5 text-gray-700 font-bold mt-1.5">📍 {{ req.court }}</p>
+                <div class="flex flex-col items-start mb-3 mt-1">
+                  <p class="font-bold text-gray-900 text-sm truncate pr-2">{{ group.full_name }}</p>
+                  <p class="text-[10px] text-gray-400 font-mono mt-0.5">{{ group.reference }}</p>
                 </div>
-                <div class="mt-4 pt-3 border-t border-gray-200 flex justify-end">
-                  <span class="text-xs font-bold text-[#1C1C1C] group-hover:text-[#A9FC24] transition-colors flex items-center gap-1">
-                    Review Request <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                
+                <div class="text-xs text-gray-500 flex flex-col gap-1.5 font-medium border-l-2 border-gray-200 pl-2">
+                  <p class="flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg> 
+                    {{ formatPendingDate(group.slots[0].booking_date) }} | {{ group.slots[0].time_slot }}
+                  </p>
+                  <p v-if="group.slots.length > 1" class="text-gray-400 italic text-xs mt-1">
+                    + {{ group.slots.length - 1 }} more slot(s)...
+                  </p>
+                </div>
+                
+                <div class="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
+                  <span class="font-bold text-gray-900 text-sm">₱{{ group.totalPrice }}</span>
+                  <span class="text-xs font-bold text-[#1C1C1C] group-hover:text-[#A9FC24] transition-colors flex items-center gap-1 bg-white px-3 py-1.5 rounded-lg border border-gray-200 group-hover:border-[#A9FC24]">
+                    Review Order <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
                   </span>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
 
         <div class="w-full flex-grow bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
           
@@ -180,15 +257,12 @@ const handleLogout = async () => {
                 <svg class="w-4 h-4 text-gray-300 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
                 </svg>
-
-                <div v-if="globalPendingList.length > 0" class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full border-2 border-[#1C1C1C] animate-pulse"></div>
+                <div v-if="globalPendingGroups.length > 0" class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full border-2 border-[#1C1C1C] animate-pulse"></div>
               </button>
               
               <input 
                 type="date" 
                 v-model="selectedDate" 
-                :min="today"
-                :max="maxDate"
                 class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 @click="(e) => (e.target as any).showPicker?.()"
               />
@@ -216,17 +290,28 @@ const handleLogout = async () => {
                 <div v-for="court in courts" :key="court" class="w-full">
                   <button 
                     @click="handleSlotClick(getSlotData(court, time))"
-                    class="w-full py-3.5 rounded-xl font-bold text-xs tracking-tight transition-transform active:scale-95 uppercase relative overflow-hidden"
+                    class="w-full py-2.5 min-h-[48px] rounded-xl font-bold text-xs tracking-tight transition-all active:scale-95 uppercase relative overflow-hidden border flex flex-col items-center justify-center"
                     :class="{
-                      'bg-[#F8F9FA] text-gray-400 border border-gray-200 hover:border-gray-300 hover:text-gray-600': getSlotData(court, time).status === 'Available',
-                      'bg-[#2A2A2A] text-white hover:bg-black shadow-md': getSlotData(court, time).status === 'Pending',
-                      'bg-[#A9FC24] text-[#2A2A2A] hover:bg-[#97e31e] shadow-sm': getSlotData(court, time).status === 'Approved',
-                      'bg-gray-200 text-gray-400 cursor-not-allowed': getSlotData(court, time).status === 'Blocked'
+                      'bg-red-500 text-white border-red-600 shadow-inner scale-[0.98]': isSelectedForBlocking(court, time),
+                      'bg-[#F8F9FA] text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600': getSlotData(court, time).status === 'Available' && !isSelectedForBlocking(court, time),
+                      'bg-[#2A2A2A] text-white hover:bg-black border-transparent shadow-md': getSlotData(court, time).status === 'Pending',
+                      'bg-[#A9FC24] text-[#2A2A2A] hover:bg-[#97e31e] border-transparent shadow-sm': getSlotData(court, time).status === 'Approved',
+                      'bg-black text-white hover:bg-gray-800 border-transparent shadow-md': getSlotData(court, time).status === 'Blocked'
                     }"
                   >
-                    <!-- Red corner for pending slots shown in the grid -->
                     <div v-if="getSlotData(court, time).status === 'Pending'" class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-bl-lg shadow-sm"></div>
-                    {{ getSlotData(court, time).status }}
+                    
+                    <template v-if="isSelectedForBlocking(court, time)">
+                      SELECT
+                    </template>
+                    <template v-else>
+                      <span>{{ getSlotData(court, time).status }}</span>
+                      
+                      <span v-if="getSlotData(court, time).status === 'Pending' && getSlotData(court, time).full_name" 
+                            class="text-[10px] text-gray-300 font-medium normal-case tracking-normal mt-0.5 truncate w-full px-2">
+                        {{ getSlotData(court, time).full_name }}
+                      </span>
+                    </template>
                   </button>
                 </div>
               </template>
@@ -240,6 +325,13 @@ const handleLogout = async () => {
 </template>
 
 <style scoped>
+.slide-up-enter-active, .slide-up-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.slide-up-enter-from, .slide-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 20px);
+}
 
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
