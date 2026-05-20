@@ -112,13 +112,13 @@ const gridItems = computed(() => {
     let i = 0
     
     while (i < times.length) {
-      const time = times[i]
+      const time = times[i] as string 
       const slotData = getSlotData(court, time)
       let span = 1
 
       if (slotData.status !== 'Available') {
         for (let j = i + 1; j < times.length; j++) {
-          const nextTime = times[j]
+          const nextTime = times[j] as string 
           const nextSlotData = getSlotData(court, nextTime)
 
           if (nextSlotData.status === 'Available') break
