@@ -99,10 +99,55 @@ const getSlotData = (court: string, time: string) => {
   const booking = bookings.value.find(b => b.court === court && b.time_slot === time)
   if (booking) {
     const capStatus = booking.status.charAt(0).toUpperCase() + booking.status.slice(1).toLowerCase()
-    return { ...booking, status: capStatus }
+    return { ...booking, status: capStatus, court, time_slot: time }
   }
-  return { status: 'Available', court: court, time_slot: time }
+  return { status: 'Available', court, time_slot: time }
 }
+
+const gridItems = computed(() => {
+  const items: any[] = []
+  
+  courts.forEach((court, courtIdx) => {
+    const col = courtIdx + 2 
+    let i = 0
+    
+    while (i < times.length) {
+      const time = times[i]
+      const slotData = getSlotData(court, time)
+      let span = 1
+
+      if (slotData.status !== 'Available') {
+        for (let j = i + 1; j < times.length; j++) {
+          const nextTime = times[j]
+          const nextSlotData = getSlotData(court, nextTime)
+
+          if (nextSlotData.status === 'Available') break
+
+          const isSameStatus = slotData.status === nextSlotData.status
+          const isSameRef = slotData.booking_reference && slotData.booking_reference === nextSlotData.booking_reference
+          const isSameName = slotData.full_name && slotData.full_name === nextSlotData.full_name
+
+          if (isSameStatus && (isSameRef || isSameName)) {
+            span++
+          } else {
+            break
+          }
+        }
+      }
+
+      items.push({
+        ...slotData,
+        row: i + 2, 
+        col: col,
+        span: span
+      })
+
+      i += span
+    }
+  })
+  
+  return items
+})
 
 const isSelectedForBlocking = (court: string, time: string) => {
   return selectedForBlocking.value.some(s => s.court === court && s.time_slot === time && s.date === selectedDate.value)
@@ -275,46 +320,55 @@ const handleLogout = async () => {
           </div>
 
           <div v-else class="w-full overflow-x-auto pb-6">
-            <div class="min-w-[700px] grid grid-cols-[160px_repeat(4,_minmax(120px,_1fr))] gap-x-4 gap-y-3 items-center">
+            
+            <div class="min-w-[700px] grid grid-cols-[160px_repeat(4,_minmax(120px,_1fr))] gap-x-4 gap-y-3">
               
-              <div class="text-left font-bold text-xs text-gray-400 tracking-widest pl-2">TIME</div>
-              <div v-for="court in courts" :key="court" class="text-center font-bold text-sm text-gray-800 uppercase">
+              <div class="text-left font-bold text-xs text-gray-400 tracking-widest pl-2 flex items-center" style="grid-column: 1; grid-row: 1;">TIME</div>
+              
+              <div v-for="(court, idx) in courts" :key="court" class="text-center font-bold text-sm text-gray-800 uppercase" :style="{ gridColumn: idx + 2, gridRow: 1 }">
                 {{ court }}
               </div>
 
-              <template v-for="time in times" :key="time">
-                <div class="text-left pl-2 text-sm font-semibold text-gray-600">
-                  {{ time }}
-                </div>
+              <div v-for="(time, idx) in times" :key="time" class="text-left pl-2 text-sm font-semibold text-gray-600 min-h-[48px] flex items-center" :style="{ gridColumn: 1, gridRow: idx + 2 }">
+                {{ time }}
+              </div>
 
-                <div v-for="court in courts" :key="court" class="w-full">
-                  <button 
-                    @click="handleSlotClick(getSlotData(court, time))"
-                    class="w-full py-2.5 min-h-[48px] rounded-xl font-bold text-xs tracking-tight transition-all active:scale-95 uppercase relative overflow-hidden border flex flex-col items-center justify-center"
-                    :class="{
-                      'bg-red-500 text-white border-red-600 shadow-inner scale-[0.98]': isSelectedForBlocking(court, time),
-                      'bg-[#F8F9FA] text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600': getSlotData(court, time).status === 'Available' && !isSelectedForBlocking(court, time),
-                      'bg-[#2A2A2A] text-white hover:bg-black border-transparent shadow-md': getSlotData(court, time).status === 'Pending',
-                      'bg-[#A9FC24] text-[#2A2A2A] hover:bg-[#97e31e] border-transparent shadow-sm': getSlotData(court, time).status === 'Approved',
-                      'bg-black text-white hover:bg-gray-800 border-transparent shadow-md': getSlotData(court, time).status === 'Blocked'
-                    }"
-                  >
-                    <div v-if="getSlotData(court, time).status === 'Pending'" class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-bl-lg shadow-sm"></div>
+              <div v-for="cell in gridItems" :key="cell.court + cell.time_slot"
+                   class="w-full"
+                   :style="{ gridColumn: cell.col, gridRow: `${cell.row} / span ${cell.span}` }">
+                
+                <button 
+                  @click="handleSlotClick(cell)"
+                  class="w-full h-full min-h-[48px] rounded-xl font-bold text-xs tracking-tight transition-all active:scale-95 uppercase relative overflow-hidden border flex flex-col items-center justify-center"
+                  :class="{
+                    'bg-red-500 text-white border-red-600 shadow-inner scale-[0.98]': isSelectedForBlocking(cell.court, cell.time_slot),
+                    'bg-[#F8F9FA] text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-600': cell.status === 'Available' && !isSelectedForBlocking(cell.court, cell.time_slot),
+                    'bg-[#2A2A2A] text-white hover:bg-black border-transparent shadow-md': cell.status === 'Pending',
+                    'bg-[#A9FC24] text-[#2A2A2A] hover:bg-[#97e31e] border-transparent shadow-sm': cell.status === 'Approved',
+                    'bg-black text-white hover:bg-gray-800 border-transparent shadow-md': cell.status === 'Blocked'
+                  }"
+                >
+                  <div v-if="cell.status === 'Pending'" class="absolute top-0 right-0 w-3 h-3 bg-red-500 rounded-bl-lg shadow-sm"></div>
+                  
+                  <template v-if="isSelectedForBlocking(cell.court, cell.time_slot)">
+                    SELECT
+                  </template>
+                  <template v-else>
+                    <span>{{ cell.status }}</span>
                     
-                    <template v-if="isSelectedForBlocking(court, time)">
-                      SELECT
-                    </template>
-                    <template v-else>
-                      <span>{{ getSlotData(court, time).status }}</span>
-                      
-                      <span v-if="getSlotData(court, time).status === 'Pending' && getSlotData(court, time).full_name" 
-                            class="text-[10px] text-gray-300 font-medium normal-case tracking-normal mt-0.5 truncate w-full px-2">
-                        {{ getSlotData(court, time).full_name }}
-                      </span>
-                    </template>
-                  </button>
-                </div>
-              </template>
+                    <span v-if="cell.status !== 'Available' && cell.full_name" 
+                          class="text-[10px] font-medium normal-case tracking-normal mt-0.5 truncate w-full px-2"
+                          :class="{
+                            'text-gray-300': cell.status === 'Pending',
+                            'text-[#4A4A4A]': cell.status === 'Approved',
+                            'text-gray-400': cell.status === 'Blocked'
+                          }">
+                      {{ cell.full_name }}
+                    </span>
+                  </template>
+                </button>
+              </div>
+
             </div>
           </div>
 

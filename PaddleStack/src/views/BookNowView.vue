@@ -116,9 +116,9 @@ const scheduleGrid = computed(() => {
       let price = 0;
       const isLate = timeIdx >= 7; 
       
-      if (selectedDate.value >= '2026-06-04') {
+      if (selectedDate.value >= '2026-06-03') {
         price = isLate ? 550 : 500;
-      } else if (selectedDate.value >= '2026-05-28' && selectedDate.value <= '2026-06-03') {
+      } else if (selectedDate.value >= '2026-05-28' && selectedDate.value <= '2026-06-02') {
         if (court === 'COURT 3' || court === 'COURT 4') {
           price = isLate ? 550 : 500;
         } else {
