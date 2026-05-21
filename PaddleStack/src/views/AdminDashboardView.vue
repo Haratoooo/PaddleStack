@@ -239,7 +239,8 @@ const handleLogout = async () => {
 
         <div class="w-full xl:w-[400px] shrink-0 flex flex-col gap-4">
           <div class="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col h-[600px] sticky top-24">
-            <div class="flex justify-between items-center mb-6">
+            
+            <div class="flex justify-between items-center mb-6 shrink-0">
               <h2 class="text-xl font-bold text-gray-900 tracking-tight">Recent Orders</h2>
               <span v-if="globalPendingGroups.length > 0" class="bg-red-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-sm">
                 {{ globalPendingGroups.length }} New
@@ -252,12 +253,12 @@ const handleLogout = async () => {
               <p class="text-sm">No pending bookings.</p>
             </div>
 
-            <div v-else class="flex-grow overflow-y-auto pr-2 custom-scrollbar flex flex-col gap-3">
+            <div v-else class="flex-grow overflow-y-auto min-h-0 pr-2 custom-scrollbar flex flex-col gap-3">
               <div 
                 v-for="group in globalPendingGroups" 
                 :key="group.reference"
                 @click="handleGroupClick(group)"
-                class="bg-[#F8F9FA] hover:bg-gray-100 transition-colors p-4 rounded-2xl cursor-pointer border border-gray-200 group relative overflow-hidden"
+                class="bg-[#F8F9FA] hover:bg-gray-100 transition-colors p-4 rounded-2xl cursor-pointer border border-gray-200 group relative overflow-hidden shrink-0"
               >
                 <div class="absolute top-0 right-0 bg-[#A9FC24] text-black text-[10px] font-bold px-2 py-1 rounded-bl-lg">
                   {{ group.slots.length }} SLOT{{ group.slots.length > 1 ? 'S' : '' }}
