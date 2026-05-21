@@ -252,14 +252,21 @@ const executeConfirm = async () => {
 
           <div class="mt-4 bg-white/60 p-4 rounded-xl border border-gray-200 shadow-sm">
             <p class="text-[#6B6B6B] text-xs font-medium mb-3 border-b border-gray-200 pb-2">Requested Slots</p>
+            
             <div class="flex flex-col gap-3">
               <div v-for="slot in orderSlots" :key="slot.id" class="flex justify-between items-center text-sm font-bold text-[#4A4A4A]">
                 <div class="flex items-center gap-2">
                   <span class="bg-[#EBEBEB] px-2 py-1 rounded text-xs">{{ slot.court }}</span>
                   <span class="text-xs text-gray-500 tracking-wide">{{ displayDate(slot.booking_date) }}</span>
+                  <span class="ml-1">{{ slot.time_slot }}</span>
                 </div>
-                <span>{{ slot.time_slot }}</span>
+                <span class="text-[#1C1C1C]">₱{{ slot.price || 0 }}</span>
               </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
+              <span class="text-xs font-bold text-[#6B6B6B] uppercase tracking-wider">Total</span>
+              <span class="text-lg font-black text-[#1C1C1C]">₱{{ totalPrice }}</span>
             </div>
           </div>
           

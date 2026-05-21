@@ -5,11 +5,13 @@ import { supabase } from '@/supabase'
 import darkLogo from '@/assets/images/footerlogo.svg' 
 import gcashQR from '@/assets/payment/gcash.jpg'
 import bpiQR from '@/assets/payment/bpi.jpg'
+import imageCompression from 'browser-image-compression'
 
 // --- STATE MANAGEMENT ---
 const router = useRouter()
 const currentStep = ref(1)
 const isSubmitting = ref(false)
+const isCompressing = ref(false) // NEW: Tracks image compression state
 const isReceiptModalOpen = ref(false)
 
 const formData = reactive({
@@ -195,13 +197,33 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 const triggerFileInput = () => fileInputRef.value?.click()
 
-const handleFileChange = (event: Event) => {
+const handleFileChange = async (event: Event) => {
   const target = event.target as HTMLInputElement
   if (target.files && target.files.length > 0) {
     const file = target.files[0]
-    if (file) {
-      receiptFile.value = file
-      receiptPreview.value = URL.createObjectURL(file)
+    if (!file) return
+
+    isCompressing.value = true
+
+    const options = {
+      maxSizeMB: 0.2, 
+      maxWidthOrHeight: 1200,
+      useWebWorker: true
+    }
+
+    try {
+      const compressedFile = await imageCompression(file, options)
+      
+      console.log(`Original Size: ${(file.size / 1024 / 1024).toFixed(2)} MB`)
+      console.log(`Compressed Size: ${(compressedFile.size / 1024 / 1024).toFixed(2)} MB`)
+      
+      receiptFile.value = compressedFile
+      receiptPreview.value = URL.createObjectURL(compressedFile)
+    } catch (error) {
+      console.error("Error shrinking image:", error)
+      alert("Failed to process image. Please try a different screenshot.")
+    } finally {
+      isCompressing.value = false
     }
   }
 }
@@ -442,7 +464,7 @@ const handleConfirmBooking = async () => {
 
         <div v-else-if="currentStep === 3" key="step3" class="w-full max-w-5xl mx-auto pb-10">
           <button @click="currentStep = 2" class="mb-6 flex items-center gap-2 text-gray-500 hover:text-black font-medium transition-colors">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7-7h18"></path></svg>
             Back to Schedule
           </button>
 
@@ -523,12 +545,16 @@ const handleConfirmBooking = async () => {
                 
                 <input type="file" ref="fileInputRef" @change="handleFileChange" accept="image/*" class="hidden" />
                 
-                <div class="w-full bg-[#D9D9D9] rounded-2xl border-4 border-dashed border-gray-400 p-3 h-48 relative overflow-hidden transition-colors" :class="!receiptPreview ? 'hover:bg-[#EBEBEB]' : ''">
+                <div class="w-full bg-[#D9D9D9] rounded-2xl border-4 border-dashed border-gray-400 p-3 h-48 relative overflow-hidden transition-colors" :class="!receiptPreview && !isCompressing ? 'hover:bg-[#EBEBEB]' : ''">
                   
                   <template v-if="!receiptPreview">
-                    <div @click="triggerFileInput" class="w-full h-full flex flex-col items-center justify-center cursor-pointer">
-                      <svg class="w-10 h-10 text-gray-800 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
-                      <span class="text-gray-800 font-bold text-sm tracking-wide">TAP TO UPLOAD RECEIPT</span>
+                    <div @click="!isCompressing && triggerFileInput()" class="w-full h-full flex flex-col items-center justify-center" :class="isCompressing ? 'cursor-wait opacity-70' : 'cursor-pointer'">
+                      <svg v-if="!isCompressing" class="w-10 h-10 text-gray-800 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                      <svg v-else class="animate-spin w-10 h-10 text-gray-800 mb-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                      
+                      <span class="text-gray-800 font-bold text-sm tracking-wide">
+                        {{ isCompressing ? 'COMPRESSING IMAGE...' : 'TAP TO UPLOAD RECEIPT' }}
+                      </span>
                     </div>
                   </template>
 
@@ -557,8 +583,8 @@ const handleConfirmBooking = async () => {
 
               <div class="flex flex-col items-center mt-6 mb-8 text-center">
                 <p class="text-gray-800 font-bold text-lg">{{ selectedSlots.length }} Slots - {{ uniqueCourtsCount }} Courts</p>
-                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile" class="mt-4 bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3" :class="receiptFile && !isSubmitting ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
-                  {{ isSubmitting ? 'Processing...' : 'Confirm Reservation' }}
+                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile || isCompressing" class="mt-4 bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3" :class="receiptFile && !isSubmitting && !isCompressing ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
+                  {{ isSubmitting ? 'Processing...' : (isCompressing ? 'Compressing Image...' : 'Confirm Reservation') }}
                 </button>
                 <p class="text-gray-800 font-bold text-sm mt-6">Confirmation sent once approved by staff</p>
                 <p v-if="!receiptFile" class="text-red-500 text-sm font-bold mt-2 animate-pulse">Please attach your receipt to confirm.</p>
