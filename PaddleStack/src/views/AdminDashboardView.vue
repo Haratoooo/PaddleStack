@@ -13,6 +13,13 @@ const isLoading = ref(true)
 const selectedForBlocking = ref<any[]>([])
 const isBlocking = ref(false)
 
+const showManualModal = ref(false)
+const isManualBooking = ref(false)
+const manualForm = ref({ name: '', email: '', phone: '', price: 0 })
+const manualFile = ref<File | null>(null)
+const manualPreview = ref<string | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+
 const getLocalDateString = (d = new Date()) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -94,6 +101,42 @@ const times = [
   '4:00 - 5:00 pm', '5:00 - 6:00 pm', '6:00 - 7:00 pm', '7:00 - 8:00 pm',
   '8:00 - 9:00 pm', '9:00 - 10:00 pm', '10:00 - 11:00 pm', '11:00 pm - 12:00 am'
 ]
+
+const calculateSlotPrice = (dateStr: string, court: string, timeSlot: string) => {
+  const timeIdx = times.indexOf(timeSlot)
+  const isLate = timeIdx >= 7 
+  let price = 0
+  
+  if (dateStr >= '2026-06-03') {
+    price = isLate ? 550 : 500
+  } else if (dateStr >= '2026-05-28' && dateStr <= '2026-06-02') {
+    if (court === 'COURT 3' || court === 'COURT 4') {
+      price = isLate ? 550 : 500
+    } else {
+      price = isLate ? 500 : 450
+    }
+  } else {
+    price = isLate ? 400 : 300
+  }
+  return price
+}
+
+const selectedSlotsDetails = computed(() => {
+  return selectedForBlocking.value.map(slot => ({
+    ...slot,
+    price: calculateSlotPrice(slot.date, slot.court, slot.time_slot)
+  }))
+})
+
+const autoComputedTotal = computed(() => {
+  return selectedSlotsDetails.value.reduce((sum, slot) => sum + slot.price, 0)
+})
+
+watch(showManualModal, (newVal) => {
+  if (newVal) {
+    manualForm.value.price = autoComputedTotal.value
+  }
+})
 
 const getSlotData = (court: string, time: string) => {
   const booking = bookings.value.find(b => b.court === court && b.time_slot === time)
@@ -196,6 +239,88 @@ const confirmBlockMultiple = async () => {
   isBlocking.value = false
 }
 
+const handleManualFileChange = (e: Event) => {
+  const target = e.target as HTMLInputElement
+  if (target.files && target.files.length > 0) {
+    const file = target.files[0]
+    if (file) {
+      manualFile.value = file
+      manualPreview.value = URL.createObjectURL(file)
+    }
+  }
+}
+
+const submitManualBooking = async () => {
+  if (!manualForm.value.name || !manualForm.value.email || selectedForBlocking.value.length === 0 || !manualFile.value) return
+  isManualBooking.value = true
+
+  try {
+    let publicUrl = null
+
+    const fileExt = manualFile.value.name.split('.').pop()
+    const fileName = `manual_${Math.random().toString(36).substring(2, 10)}.${fileExt}`
+    const { error: uploadError } = await supabase.storage.from('receipts').upload(`receipts/${fileName}`, manualFile.value)
+    
+    if (uploadError) throw uploadError
+
+    const { data } = supabase.storage.from('receipts').getPublicUrl(`receipts/${fileName}`)
+    publicUrl = data.publicUrl
+
+    const refCode = 'ADMIN-' + Math.random().toString(36).substring(2, 8).toUpperCase()
+    
+    const perSlotPrice = Math.floor(manualForm.value.price / selectedForBlocking.value.length)
+
+    const rowsToInsert = selectedSlotsDetails.value.map(slot => ({
+      booking_reference: refCode,
+      full_name: manualForm.value.name,
+      email: manualForm.value.email, 
+      phone: manualForm.value.phone || 'N/A',
+      booking_date: slot.date,
+      court: slot.court,
+      time_slot: slot.time_slot,
+      price: manualForm.value.price === autoComputedTotal.value ? slot.price : perSlotPrice,
+      status: 'Approved', 
+      receipt_url: publicUrl
+    }))
+
+    // Save to Database
+    const { error: dbError } = await supabase.from('bookings').insert(rowsToInsert)
+    if (dbError) throw dbError
+
+    // Trigger the Approval Email Edge Function ---
+    try {
+      const { error: emailError } = await supabase.functions.invoke('send-approval-email', {
+        body: {
+          customerName: manualForm.value.name,
+          customerEmail: manualForm.value.email, 
+          customerPhone: manualForm.value.phone || 'N/A',
+          reference: refCode,
+          total: manualForm.value.price, 
+          slots: rowsToInsert 
+        }
+      })
+      
+      if (emailError) console.error("Email failed to send:", emailError)
+    } catch (err) {
+      console.error("Edge function error:", err)
+    }
+
+    showManualModal.value = false
+    selectedForBlocking.value = []
+    manualForm.value = { name: '', email: '', phone: '', price: 0 }
+    manualFile.value = null
+    manualPreview.value = null
+    
+    await fetchDailyBookings()
+
+  } catch (error) {
+    console.error("Manual booking failed:", error)
+    alert("There was an error creating this booking.")
+  } finally {
+    isManualBooking.value = false
+  }
+}
+
 const handleGroupClick = (group: any) => {
   router.push({
     path: '/admin/slot', 
@@ -210,23 +335,100 @@ const handleLogout = async () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#F8F9FA] font-sans text-gray-800 pb-20">
+  <div class="min-h-screen bg-[#F8F9FA] font-sans text-gray-800 pb-20 relative">
     
     <transition name="slide-up">
-      <div v-if="selectedForBlocking.length > 0" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-[#1C1C1C] text-white px-6 py-4 rounded-full shadow-2xl z-50 flex items-center gap-6 border border-gray-700">
+      <div v-if="selectedForBlocking.length > 0" class="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-[#1C1C1C] text-white px-6 py-4 rounded-full shadow-2xl z-40 flex items-center gap-6 border border-gray-700">
         <span class="font-bold whitespace-nowrap">{{ selectedForBlocking.length }} Slot(s) Selected</span>
         <div class="flex items-center gap-3">
-          <button @click="confirmBlockMultiple" :disabled="isBlocking" class="bg-red-500 text-white px-6 py-2 rounded-full font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
+          
+          <button @click="showManualModal = true" class="bg-[#A9FC24] text-[#1C1C1C] px-6 py-2 rounded-full font-bold hover:bg-[#97e31e] transition-colors shadow-sm">
+            Book Courts
+          </button>
+          
+          <button @click="confirmBlockMultiple" :disabled="isBlocking" class="bg-[#FF4A4A] text-white px-6 py-2 rounded-full font-bold hover:bg-red-600 transition-colors disabled:opacity-50">
             {{ isBlocking ? 'Blocking...' : 'Block Courts' }}
           </button>
-          <button @click="selectedForBlocking = []" class="text-gray-400 hover:text-white font-medium p-2 rounded-full hover:bg-gray-800 transition-colors">
+          
+          <button @click="selectedForBlocking = []" class="text-gray-400 hover:text-white font-medium p-2 rounded-full hover:bg-gray-800 transition-colors ml-1">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
           </button>
         </div>
       </div>
     </transition>
 
-    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-40">
+    <div v-if="showManualModal" class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-3xl w-full max-w-lg p-8 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+        
+        <button @click="showManualModal = false" class="absolute top-6 right-6 text-gray-400 hover:text-gray-800">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+        </button>
+
+        <h2 class="text-2xl font-bold text-gray-900 mb-1">Manual Booking</h2>
+        <p class="text-sm text-gray-500 mb-6">Create an auto-approved booking for {{ selectedForBlocking.length }} slot(s).</p>
+
+        <div class="mb-6 bg-gray-50 p-5 rounded-2xl border border-gray-200">
+          <h3 class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 border-b border-gray-200 pb-2">Selected Courts Summary</h3>
+          
+          <div class="flex flex-col gap-2.5 max-h-32 overflow-y-auto custom-scrollbar pr-2">
+            <div v-for="slot in selectedSlotsDetails" :key="slot.court + slot.time_slot" class="flex justify-between items-center">
+              <span class="text-sm font-bold text-gray-800">{{ slot.court }} <span class="text-gray-500 font-medium ml-1.5">{{ slot.time_slot }}</span></span>
+              <span class="text-sm font-black text-gray-900">₱{{ slot.price }}</span>
+            </div>
+          </div>
+          
+          <div class="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
+            <span class="text-xs font-bold text-gray-500 uppercase">Auto-Computed Total</span>
+            <span class="text-lg font-black text-[#A9FC24] bg-[#1C1C1C] px-3 py-1 rounded-lg">₱{{ autoComputedTotal }}</span>
+          </div>
+        </div>
+
+        <form @submit.prevent="submitManualBooking" class="flex flex-col gap-5">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Customer Name *</label>
+              <input type="text" v-model="manualForm.name" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="Juan Dela Cruz" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Customer Email *</label>
+              <input type="email" v-model="manualForm.email" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="juan@email.com" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Contact Number</label>
+              <input type="tel" v-model="manualForm.phone" class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="09XX..." />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Override Total (₱)</label>
+              <input type="number" v-model="manualForm.price" required min="0" class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none font-bold text-gray-900" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Attach Receipt / Proof *</label>
+            <input type="file" ref="fileInputRef" @change="handleManualFileChange" accept="image/*" class="hidden" />
+            
+            <div @click="() => fileInputRef?.click()" class="w-full border-2 border-dashed border-gray-300 rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-gray-50 transition-colors" :class="manualPreview ? 'h-auto border-green-500 bg-green-50/50' : 'h-32'">
+              <template v-if="!manualPreview">
+                <svg class="w-8 h-8 text-gray-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                <span class="text-sm font-bold text-gray-600">Tap to upload receipt</span>
+                <span class="text-xs text-red-500 font-bold mt-1">Required</span>
+              </template>
+              <img v-else :src="manualPreview" class="max-h-48 rounded-lg object-contain shadow-sm" />
+            </div>
+          </div>
+
+          <button type="submit" :disabled="isManualBooking || !manualFile" class="mt-4 w-full bg-[#1C1C1C] text-[#A9FC24] py-4 rounded-xl font-bold hover:bg-black transition-colors disabled:opacity-50 disabled:text-gray-500 flex justify-center items-center gap-2">
+            {{ isManualBooking ? 'Saving Booking...' : 'Confirm Auto-Approved Booking' }}
+            <svg v-if="!isManualBooking" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path></svg>
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-30">
       <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
       <button @click="handleLogout" class="text-gray-600 hover:text-black font-medium transition-colors">
         Logout
@@ -234,7 +436,6 @@ const handleLogout = async () => {
     </header>
 
     <main class="max-w-[1600px] mx-auto px-4 mt-8 relative">
-      
       <div class="flex flex-col xl:flex-row gap-8 items-start">
 
         <div class="w-full xl:w-[400px] shrink-0 flex flex-col gap-4">

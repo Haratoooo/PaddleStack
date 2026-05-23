@@ -7,12 +7,14 @@ import gcashQR from '@/assets/payment/gcash.jpg'
 import bpiQR from '@/assets/payment/bpi.jpg'
 import imageCompression from 'browser-image-compression'
 
+
 // --- STATE MANAGEMENT ---
 const router = useRouter()
 const currentStep = ref(1)
 const isSubmitting = ref(false)
 const isCompressing = ref(false) // NEW: Tracks image compression state
 const isReceiptModalOpen = ref(false)
+const isVerifyingEmail = ref(false)
 
 const formData = reactive({
   fullName: '',
@@ -25,14 +27,15 @@ const formErrors = reactive({
   phone: ''
 })
 
-const handleNextStep = () => {
+const handleNextStep = async () => {
+  console.log("1. Button clicked. Starting validation...");
   formErrors.email = ''
   formErrors.phone = ''
   let isValid = true
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  if (!emailRegex.test(formData.email)) {
-    formErrors.email = 'Please enter a valid email address.'
+  const strictEmailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/
+  if (!formData.email || !strictEmailRegex.test(formData.email)) {
+    formErrors.email = 'Please enter a valid email address (e.g., name@gmail.com).'
     isValid = false
   }
 
@@ -40,6 +43,49 @@ const handleNextStep = () => {
   if (!phoneRegex.test(formData.phone)) {
     formErrors.phone = 'Please enter a valid phone number.'
     isValid = false
+  }
+
+  console.log(`2. Validation check: isValid = ${isValid}, fullName = ${!!formData.fullName}`);
+  
+  // If this triggers, it means the code stops here and never calls Supabase!
+  if (!isValid || !formData.fullName) {
+    console.log("🛑 Code stopped: Form is missing data or has errors.");
+    return
+  }
+
+  console.log("3. Validation passed! Contacting Supabase Edge Function...");
+  isVerifyingEmail.value = true
+  
+  try {
+    const response = await supabase.functions.invoke('verify-email', {
+      body: { email: formData.email }
+    })
+    
+    console.log("4. Supabase responded! Here is the raw response:", response);
+
+    const { data, error } = response;
+    
+    if (error) {
+      console.error("🛑 Supabase specifically threw an error:", error);
+      throw error;
+    }
+
+    console.log("5. Data received from Abstract API:", data);
+
+    if (data && data.email_deliverability?.status === 'undeliverable') {
+      formErrors.email = 'This email domain does not exist or cannot receive mail.'
+      isValid = false
+    }
+    else if (data && data.email_quality?.is_disposable === true) {
+      formErrors.email = 'Temporary or disposable emails are not allowed.'
+      isValid = false
+    }
+
+  } catch (error) {
+    console.error("🛑 The try/catch block caught a hard error:", error)
+  } finally {
+    console.log("6. Process finished. Moving to step 2 if valid.");
+    isVerifyingEmail.value = false
   }
 
   if (isValid && formData.fullName) {
