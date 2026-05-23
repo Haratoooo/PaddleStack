@@ -28,7 +28,6 @@ const formErrors = reactive({
 })
 
 const handleNextStep = async () => {
-  console.log("1. Button clicked. Starting validation...");
   formErrors.email = ''
   formErrors.phone = ''
   let isValid = true
@@ -45,46 +44,28 @@ const handleNextStep = async () => {
     isValid = false
   }
 
-  console.log(`2. Validation check: isValid = ${isValid}, fullName = ${!!formData.fullName}`);
-  
-  // If this triggers, it means the code stops here and never calls Supabase!
-  if (!isValid || !formData.fullName) {
-    console.log("🛑 Code stopped: Form is missing data or has errors.");
-    return
-  }
+  if (!isValid || !formData.fullName) return
 
-  console.log("3. Validation passed! Contacting Supabase Edge Function...");
   isVerifyingEmail.value = true
   
   try {
-    const response = await supabase.functions.invoke('verify-email', {
+    const { data, error } = await supabase.functions.invoke('verify-email', {
       body: { email: formData.email }
     })
     
-    console.log("4. Supabase responded! Here is the raw response:", response);
+    if (error) throw error
 
-    const { data, error } = response;
-    
-    if (error) {
-      console.error("🛑 Supabase specifically threw an error:", error);
-      throw error;
-    }
-
-    console.log("5. Data received from Abstract API:", data);
-
-    if (data && data.email_deliverability?.status === 'undeliverable') {
+    if (data?.email_deliverability?.status === 'undeliverable') {
       formErrors.email = 'This email domain does not exist or cannot receive mail.'
       isValid = false
-    }
-    else if (data && data.email_quality?.is_disposable === true) {
+    } else if (data?.email_quality?.is_disposable === true) {
       formErrors.email = 'Temporary or disposable emails are not allowed.'
       isValid = false
     }
 
   } catch (error) {
-    console.error("🛑 The try/catch block caught a hard error:", error)
+    console.warn("Email verification bypassed or failed:", error)
   } finally {
-    console.log("6. Process finished. Moving to step 2 if valid.");
     isVerifyingEmail.value = false
   }
 
