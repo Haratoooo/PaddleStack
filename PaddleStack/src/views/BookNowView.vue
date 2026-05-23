@@ -8,11 +8,10 @@ import bpiQR from '@/assets/payment/bpi.jpg'
 import imageCompression from 'browser-image-compression'
 
 
-// --- STATE MANAGEMENT ---
 const router = useRouter()
 const currentStep = ref(1)
 const isSubmitting = ref(false)
-const isCompressing = ref(false) // NEW: Tracks image compression state
+const isCompressing = ref(false) 
 const isReceiptModalOpen = ref(false)
 const isVerifyingEmail = ref(false)
 
@@ -46,6 +45,14 @@ const handleNextStep = async () => {
 
   if (!isValid || !formData.fullName) return
 
+const domain = formData.email.split('@')[1]?.toLowerCase() || ''
+  const trustedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'icloud.com']
+
+  if (trustedDomains.includes(domain)) {
+    currentStep.value = 2
+    return
+  }
+
   isVerifyingEmail.value = true
   
   try {
@@ -73,7 +80,6 @@ const handleNextStep = async () => {
     currentStep.value = 2
   }
 }
-
 const goToReview = () => {
   if (selectedSlots.value.length > 0) currentStep.value = 3
 }
