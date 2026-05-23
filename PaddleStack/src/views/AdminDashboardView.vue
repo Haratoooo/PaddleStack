@@ -387,11 +387,11 @@ const handleLogout = async () => {
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Customer Name *</label>
-              <input type="text" v-model="manualForm.name" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="Juan Dela Cruz" />
+              <input type="text" v-model="manualForm.name" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="Enter name" />
             </div>
             <div>
               <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1.5 pl-1">Customer Email *</label>
-              <input type="email" v-model="manualForm.email" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="juan@email.com" />
+              <input type="email" v-model="manualForm.email" required class="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-[#A9FC24] outline-none" placeholder="Enter email" />
             </div>
           </div>
 
