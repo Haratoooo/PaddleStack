@@ -45,7 +45,7 @@ const handleNextStep = async () => {
 
   if (!isValid || !formData.fullName) return
 
-const domain = formData.email.split('@')[1]?.toLowerCase() || ''
+  const domain = formData.email.split('@')[1]?.toLowerCase() || ''
   const trustedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'icloud.com']
 
   if (trustedDomains.includes(domain)) {
@@ -80,6 +80,7 @@ const domain = formData.email.split('@')[1]?.toLowerCase() || ''
     currentStep.value = 2
   }
 }
+
 const goToReview = () => {
   if (selectedSlots.value.length > 0) currentStep.value = 3
 }
@@ -574,7 +575,11 @@ const handleConfirmBooking = async () => {
               </div>
 
               <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg">
-                <h3 class="text-white text-sm font-bold tracking-widest uppercase mb-6">Upload Payment Receipt</h3>
+                <h3 class="text-white text-sm font-bold tracking-widest uppercase mb-2">Upload Payment Receipt</h3>
+                <p class="text-[#A9FC24] text-xs font-medium mb-6 flex items-center gap-1.5">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  Please ensure the reference number is clearly visible
+                </p>
                 
                 <input type="file" ref="fileInputRef" @change="handleFileChange" accept="image/*" class="hidden" />
                 
@@ -614,13 +619,23 @@ const handleConfirmBooking = async () => {
                 </div>
               </div>
 
-              <div class="flex flex-col items-center mt-6 mb-8 text-center">
+              <div class="flex flex-col items-center mt-6 mb-8 text-center px-2">
                 <p class="text-gray-800 font-bold text-lg">{{ selectedSlots.length }} Slots - {{ uniqueCourtsCount }} Courts</p>
-                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile || isCompressing" class="mt-4 bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3" :class="receiptFile && !isSubmitting && !isCompressing ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
+                <button @click="handleConfirmBooking" :disabled="isSubmitting || !receiptFile || isCompressing" class="mt-4 bg-[#A9FC24] text-black px-12 py-4 rounded-2xl font-bold text-lg shadow-lg transform transition-all flex items-center gap-3 w-full sm:w-auto justify-center" :class="receiptFile && !isSubmitting && !isCompressing ? 'hover:-translate-y-1 hover:shadow-xl' : 'opacity-50 cursor-not-allowed'">
                   {{ isSubmitting ? 'Processing...' : (isCompressing ? 'Compressing Image...' : 'Confirm Reservation') }}
                 </button>
                 <p class="text-gray-800 font-bold text-sm mt-6">Confirmation sent once approved by staff</p>
                 <p v-if="!receiptFile" class="text-red-500 text-sm font-bold mt-2 animate-pulse">Please attach your receipt to confirm.</p>
+                
+                <div class="mt-8 bg-gray-50 border border-gray-200 rounded-xl p-4 max-w-md w-full shadow-sm text-left">
+                  <div class="flex items-start gap-3">
+                    <svg class="w-5 h-5 text-gray-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <p class="text-gray-500 text-xs leading-relaxed">
+                      <strong class="text-gray-700">Important:</strong> Bookings are non-refundable. For force majeur, bookings may be refunded or rebooked subject to court availability.
+                    </p>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
