@@ -3,8 +3,6 @@ import { reactive, ref, computed, onMounted, watch } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { supabase } from '@/supabase'
 import darkLogo from '@/assets/images/footerlogo.svg' 
-import gcashQR from '@/assets/payment/gcash.jpg'
-import bpiQR from '@/assets/payment/bpi.jpg'
 import imageCompression from 'browser-image-compression'
 
 
@@ -27,6 +25,7 @@ const formErrors = reactive({
 })
 
 const handleNextStep = async () => {
+  if (isVerifyingEmail.value) return
   formErrors.email = ''
   formErrors.phone = ''
   let isValid = true
@@ -217,14 +216,6 @@ const groupedSlots = computed(() => {
   return groups
 })
 
-const paymentMethods = [
-  { name: 'GCash - Rico F.', number: '0935-***-4647', qr: gcashQR },
-  { name: 'BPI - Rico F.', number: '0935-***-4647', qr: bpiQR }
-]
-const currentQrIndex = ref(0)
-const nextQr = () => currentQrIndex.value = (currentQrIndex.value + 1) % paymentMethods.length
-const prevQr = () => currentQrIndex.value = (currentQrIndex.value - 1 + paymentMethods.length) % paymentMethods.length
-
 const receiptFile = ref<File | null>(null)
 const receiptPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -263,6 +254,7 @@ const handleFileChange = async (event: Event) => {
 }
 
 const handleConfirmBooking = async () => {
+  if (isSubmitting.value) return
   const currentFile = receiptFile.value
   if (selectedSlots.value.length === 0 || !currentFile) return
   
@@ -552,25 +544,25 @@ const handleConfirmBooking = async () => {
 
             <div class="flex flex-col gap-6 lg:gap-8">
               
-              <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg">
-                <div class="flex justify-between items-end mb-8">
-                  <div>
-                    <h3 class="text-white text-sm font-bold tracking-widest uppercase">Payment</h3>
-                    <p class="text-gray-400 text-sm mt-1">Scan to pay</p>
-                  </div>
-                  <p class="text-gray-400 text-sm">{{ paymentMethods[currentQrIndex]?.name?.split(' - ')[0] }}</p>
+              <div class="bg-[#1C1C1C] p-8 rounded-[32px] shadow-lg flex flex-col justify-center">
+                <div class="mb-8">
+                  <h3 class="text-white text-sm font-bold tracking-widest uppercase">Payment</h3>
+                  <p class="text-gray-400 text-sm mt-1">Bank Transfer</p>
                 </div>
-                
-                <div class="relative flex items-center justify-center bg-[#2A2A2A] rounded-2xl p-4 aspect-[3/4] min-h-[400px]">
-                  <button @click="prevQr" class="absolute left-2 p-2 text-gray-500 hover:text-white transition-colors z-10">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 19l-7-7 7-7"></path></svg>
-                  </button>
-                  
-                  <img :src="paymentMethods[currentQrIndex]?.qr" class="w-full h-full object-contain max-h-[480px] rounded-xl shadow-md" />
-                  
-                  <button @click="nextQr" class="absolute right-2 p-2 text-gray-500 hover:text-white transition-colors z-10">
-                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 5l7 7-7 7"></path></svg>
-                  </button>
+
+                <div class="bg-[#2A2A2A] rounded-2xl p-8 flex flex-col gap-6 shadow-inner border border-gray-700">
+                  <div>
+                    <p class="text-gray-400 text-xs font-bold mb-1">Bank:</p>
+                    <p class="text-white font-bold text-lg">Security Bank</p>
+                  </div>
+                  <div>
+                    <p class="text-gray-400 text-xs font-bold mb-1">Name:</p>
+                    <p class="text-white font-bold text-lg">PADDLESTACK SPORTS CENTER</p>
+                  </div>
+                  <div>
+                    <p class="text-gray-400 text-xs font-bold mb-1">Account Number:</p>
+                    <p class="text-white font-bold text-xl tracking-widest">0000078297062</p>
+                  </div>
                 </div>
               </div>
 
