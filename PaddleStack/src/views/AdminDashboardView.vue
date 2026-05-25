@@ -283,11 +283,9 @@ const submitManualBooking = async () => {
       receipt_url: publicUrl
     }))
 
-    // Save to Database
     const { error: dbError } = await supabase.from('bookings').insert(rowsToInsert)
     if (dbError) throw dbError
 
-    // Trigger the Approval Email Edge Function ---
     try {
       const { error: emailError } = await supabase.functions.invoke('send-approval-email', {
         body: {
@@ -326,6 +324,11 @@ const handleGroupClick = (group: any) => {
     path: '/admin/slot', 
     query: { ref: group.reference }
   })
+}
+
+// --- NEW: Route to Monthly Summary ---
+const goToMonthlySummary = () => {
+  router.push('/admin/monthly')
 }
 
 const handleLogout = async () => {
@@ -495,24 +498,32 @@ const handleLogout = async () => {
           <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-6">
             <h2 class="text-xl font-bold text-gray-900 tracking-tight">Daily Schedule</h2>
             
-            <div class="relative group inline-block">
-              <button type="button" class="bg-[#1C1C1C] text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-black transition-colors shadow-sm relative">
-                <svg class="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                </svg>
-                <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
-                <svg class="w-4 h-4 text-gray-300 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
-                </svg>
-                <div v-if="globalPendingGroups.length > 0" class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full border-2 border-[#1C1C1C] animate-pulse"></div>
-              </button>
+            <div class="flex items-center gap-4 w-full md:w-auto">
               
-              <input 
-                type="date" 
-                v-model="selectedDate" 
-                class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                @click="(e) => (e.target as any).showPicker?.()"
-              />
+              <div class="relative group inline-block flex-grow md:flex-grow-0">
+                <button type="button" class="w-full bg-[#EBEBEB] text-gray-800 px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-gray-200 transition-colors shadow-sm relative">
+                  <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                  </svg>
+                  <span class="min-w-[90px] text-center tracking-wide">{{ displayDate }}</span>
+                  <svg class="w-4 h-4 text-gray-600 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                  <div v-if="globalPendingGroups.length > 0" class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 rounded-full border-2 border-white animate-pulse"></div>
+                </button>
+                
+                <input 
+                  type="date" 
+                  v-model="selectedDate" 
+                  class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  @click="(e) => (e.target as any).showPicker?.()"
+                />
+              </div>
+
+              <button @click="goToMonthlySummary" class="bg-[#1C1C1C] text-white px-6 py-3 rounded-xl font-bold hover:bg-black transition-colors shadow-sm whitespace-nowrap">
+                Monthly Summary
+              </button>
+
             </div>
           </div>
 

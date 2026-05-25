@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import BookNowView from '../views/BookNowView.vue'
 import AdminLoginView from '../views/AdminLoginView.vue'
-import AdminDashboardView from '../views/AdminDashboardView.vue' 
+import AdminDashboardView from '../views/AdminDashboardView.vue'
 import AdminSlotDetailView from '../views/AdminSlotDetailView.vue'
 import BookingConfirmedView from '../views/BookingConfirmedView.vue'
 import { supabase } from '@/supabase'
@@ -26,13 +26,13 @@ const router = createRouter({
       name: 'admin-login',
       component: AdminLoginView
     },
-    
+
     {
       path: '/admin/dashboard',
       name: 'admin-dashboard',
       component: AdminDashboardView,
-      meta: { requiresAuth: true } 
-    }, 
+      meta: { requiresAuth: true }
+    },
 
     {
       path: '/booking-confirmed',
@@ -45,8 +45,20 @@ const router = createRouter({
       name: 'admin-slot-detail',
       component: AdminSlotDetailView,
       meta: { requiresAuth: true }
+    },
+
+    {
+      path: '/admin/monthly',
+      component: () => import('../views/AdminMonthlyView.vue'),
+      meta: { requiresAuth: true }
+    },
+
+    {
+      path: '/admin/receipts',
+      component: () => import('../views/AdminReceiptsView.vue'),
+      meta: { requiresAuth: true }
     }
-    
+
   ]
 })
 
@@ -56,7 +68,7 @@ router.beforeEach(async (to, from) => {
   if (to.meta.requiresAuth) {
 
     const { data: { session } } = await supabase.auth.getSession()
-    
+
     if (!session) {
       return { name: 'admin-login' }
     }
