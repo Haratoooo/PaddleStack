@@ -167,10 +167,10 @@ const gridItems = computed(() => {
           if (nextSlotData.status === 'Available') break
 
           const isSameStatus = slotData.status === nextSlotData.status
+          
           const isSameRef = slotData.booking_reference && slotData.booking_reference === nextSlotData.booking_reference
-          const isSameName = slotData.full_name && slotData.full_name === nextSlotData.full_name
 
-          if (isSameStatus && (isSameRef || isSameName)) {
+          if (isSameStatus && isSameRef) {
             span++
           } else {
             break
@@ -215,6 +215,30 @@ const confirmBlockMultiple = async () => {
   if (selectedForBlocking.value.length === 0) return
   isBlocking.value = true
 
+
+  const { data: existingBookings, error: checkError } = await supabase
+    .from('bookings')
+    .select('booking_date, court, time_slot')
+    .eq('booking_date', selectedDate.value)
+    .neq('status', 'Declined')
+
+  if (!checkError && existingBookings) {
+    const conflictSlots = selectedForBlocking.value.filter(slot => 
+      existingBookings.some(existing => 
+        existing.court === slot.court && 
+        existing.time_slot === slot.time_slot
+      )
+    )
+
+    if (conflictSlots.length > 0) {
+      alert("⚠️ Cannot block. One or more of these slots were just booked by a customer! Refreshing grid...")
+      selectedForBlocking.value = []
+      await fetchDailyBookings()
+      isBlocking.value = false
+      return 
+    }
+  }
+
   const rowsToInsert = selectedForBlocking.value.map(slot => ({
     booking_reference: 'ADMIN_BLOCK',
     full_name: 'Admin Blocked',
@@ -255,6 +279,31 @@ const submitManualBooking = async () => {
   isManualBooking.value = true
 
   try {
+
+    const { data: existingBookings, error: checkError } = await supabase
+      .from('bookings')
+      .select('booking_date, court, time_slot')
+      .eq('booking_date', selectedDate.value)
+      .neq('status', 'Declined')
+
+    if (checkError) throw checkError
+
+    const conflictSlots = selectedForBlocking.value.filter(slot => 
+      existingBookings?.some(existing => 
+        existing.court === slot.court && 
+        existing.time_slot === slot.time_slot
+      )
+    )
+
+    if (conflictSlots.length > 0) {
+      alert("⚠️ Cannot complete manual booking. One or more of these slots were just booked by a customer online! Refreshing grid...")
+      selectedForBlocking.value = []
+      showManualModal.value = false
+      await fetchDailyBookings()
+      isManualBooking.value = false
+      return 
+    }
+
     let publicUrl = null
 
     const fileExt = manualFile.value.name.split('.').pop()
@@ -326,7 +375,6 @@ const handleGroupClick = (group: any) => {
   })
 }
 
-// --- NEW: Route to Monthly Summary ---
 const goToMonthlySummary = () => {
   router.push('/admin/monthly')
 }

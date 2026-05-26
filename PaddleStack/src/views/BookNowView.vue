@@ -261,6 +261,35 @@ const handleConfirmBooking = async () => {
   isSubmitting.value = true
 
   try {
+
+    const uniqueDates = [...new Set(selectedSlots.value.map(s => s.date))]
+
+    const { data: existingBookings, error: checkError } = await supabase
+      .from('bookings')
+      .select('booking_date, court, time_slot')
+      .in('booking_date', uniqueDates)
+      .neq('status', 'Declined')
+
+    if (checkError) throw checkError
+
+    const conflictSlots = selectedSlots.value.filter(slot => 
+      existingBookings?.some(existing => 
+        existing.booking_date === slot.date && 
+        existing.court === slot.court && 
+        existing.time_slot === slot.time
+      )
+    )
+
+    if (conflictSlots.length > 0) {
+      alert("⚠️ We're sorry, but one or more of your selected slots were just booked by someone else! The calendar has been refreshed. Please select new slots.")
+      
+      selectedSlots.value = []
+      await fetchAvailability()
+      currentStep.value = 2
+      isSubmitting.value = false
+      return 
+    }
+
     const fileExt = currentFile.name.split('.').pop()
     const fileName = `${Math.random().toString(36).substring(2, 10)}.${fileExt}`
     const filePath = `receipts/${fileName}`

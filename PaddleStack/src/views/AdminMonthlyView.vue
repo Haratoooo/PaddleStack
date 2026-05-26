@@ -20,49 +20,76 @@ watch([currentMonth, currentYear, selectedDailyDate], ([m, y, d]) => {
 const monthlyBookings = ref<any[]>([])
 const isLoading = ref(true)
 
-const monthlyStats = computed(() => {
-  const approvedBookings = monthlyBookings.value.filter(b => b.status === 'Approved')
+const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate())
+const firstDayOfMonth = computed(() => new Date(currentYear.value, currentMonth.value, 1).getDay())
+
+const eveningSlots = [
+  '3:00 - 4:00 pm', '4:00 - 5:00 pm', '5:00 - 6:00 pm', '6:00 - 7:00 pm',
+  '7:00 - 8:00 pm', '8:00 - 9:00 pm', '9:00 - 10:00 pm', '10:00 - 11:00 pm', '11:00 pm - 12:00 am'
+]
+
+const calculateAnalytics = (bookings: any[], daysCount: number) => {
+  const approvedBookings = bookings.filter(b => b.status === 'Approved')
   const uniqueRefs = new Set(approvedBookings.map(b => b.booking_reference))
 
-  const stats = {
-    totalOrders: uniqueRefs.size, 
-    totalSlots: approvedBookings.length, 
-    grossRevenue: approvedBookings.reduce((sum, b) => sum + (b.price || 0), 0),
-    courts: { 'COURT 1': 0, 'COURT 2': 0, 'COURT 3': 0, 'COURT 4': 0 }
+  const financial = {
+    gross: 0,
+    morning: 0,
+    evening: 0
   }
   
   approvedBookings.forEach(b => {
-    if (stats.courts[b.court as keyof typeof stats.courts] !== undefined) {
-      stats.courts[b.court as keyof typeof stats.courts]++
+    const price = b.price || 0
+    financial.gross += price
+    if (eveningSlots.includes(b.time_slot)) {
+      financial.evening += price
+    } else {
+      financial.morning += price
     }
   })
+
+  const courtHours = 4 * 16 * daysCount 
   
-  return stats
-})
+  const blockedHours = new Set(
+    bookings.filter(b => b.status === 'Blocked').map(b => `${b.booking_date}-${b.court}-${b.time_slot}`)
+  ).size
+  
+  const bookedHours = new Set(
+    bookings.filter(b => b.status === 'Approved' || b.status === 'Pending').map(b => `${b.booking_date}-${b.court}-${b.time_slot}`)
+  ).size
+
+  const availableHours = courtHours - blockedHours
+  const unbookedHours = Math.max(0, availableHours - bookedHours) 
+  
+  const utilRate = availableHours > 0 ? ((bookedHours / availableHours) * 100).toFixed(1) : '0.0'
+  const vacRate = availableHours > 0 ? ((unbookedHours / availableHours) * 100).toFixed(1) : '0.0'
+
+  const courts = { 'COURT 1': 0, 'COURT 2': 0, 'COURT 3': 0, 'COURT 4': 0 }
+  
+  const uniqueApprovedSlots = Array.from(new Set(
+    approvedBookings.map(b => `${b.court}-${b.time_slot}`)
+  )).map(str => str.split('-')[0])
+
+  uniqueApprovedSlots.forEach(courtName => {
+    if (courts[courtName as keyof typeof courts] !== undefined) courts[courtName as keyof typeof courts]++
+  })
+
+  return {
+    uniqueOrders: uniqueRefs.size,
+    financial,
+    utilization: {
+      courtHours, blockedHours, availableHours, bookedHours, unbookedHours, utilRate, vacRate
+    },
+    courts
+  }
+}
+
+const monthlyStats = computed(() => calculateAnalytics(monthlyBookings.value, daysInMonth.value))
 
 const dailyStats = computed(() => {
   if (!selectedDailyDate.value) return null
-  
-  const dailyApprovedBookings = monthlyBookings.value.filter(b => 
-    b.booking_date === selectedDailyDate.value && b.status === 'Approved'
-  )
-  
-  const uniqueRefs = new Set(dailyApprovedBookings.map(b => b.booking_reference))
-  
-  const stats = {
-    totalOrders: uniqueRefs.size,
-    totalSlots: dailyApprovedBookings.length, 
-    grossRevenue: dailyApprovedBookings.reduce((sum, b) => sum + (b.price || 0), 0),
-    courts: { 'COURT 1': 0, 'COURT 2': 0, 'COURT 3': 0, 'COURT 4': 0 }
-  }
-  
-  dailyApprovedBookings.forEach(b => {
-    if (stats.courts[b.court as keyof typeof stats.courts] !== undefined) {
-      stats.courts[b.court as keyof typeof stats.courts]++
-    }
-  })
-  
-  return stats
+  const dailyBookings = monthlyBookings.value.filter(b => b.booking_date === selectedDailyDate.value)
+  return calculateAnalytics(dailyBookings, 1) // 1 day
 })
 
 const fetchMonthlyData = async () => {
@@ -72,7 +99,7 @@ const fetchMonthlyData = async () => {
 
   const { data } = await supabase
     .from('bookings')
-    .select('court, price, booking_date, booking_reference, status')
+    .select('court, price, booking_date, booking_reference, status, time_slot')
     .gte('booking_date', startOfMonth)
     .lte('booking_date', endOfMonth)
     .neq('status', 'Declined')
@@ -80,9 +107,6 @@ const fetchMonthlyData = async () => {
   monthlyBookings.value = data || []
   isLoading.value = false
 }
-
-const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate())
-const firstDayOfMonth = computed(() => new Date(currentYear.value, currentMonth.value, 1).getDay())
 
 const navigateToDate = (day: number) => {
   const dateStr = `${currentYear.value}-${String(currentMonth.value + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -105,23 +129,16 @@ const changeMonth = (delta: number) => {
 
 const formatDisplayDate = (dateStr: string) => {
   const [y, m, d] = dateStr.split('-') as [string, string, string]
-  
   return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10))
     .toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 }
 
 const viewMonthlyReceipts = () => {
-  router.push({
-    path: '/admin/receipts',
-    query: { month: currentMonth.value + 1, year: currentYear.value }
-  })
+  router.push({ path: '/admin/receipts', query: { month: currentMonth.value + 1, year: currentYear.value } })
 }
 
 const viewDailyReceipts = () => {
-  router.push({
-    path: '/admin/receipts',
-    query: { date: selectedDailyDate.value }
-  })
+  router.push({ path: '/admin/receipts', query: { date: selectedDailyDate.value } })
 }
 
 onMounted(fetchMonthlyData)
@@ -135,144 +152,164 @@ onMounted(fetchMonthlyData)
       <button @click="router.push('/admin/dashboard')" class="text-gray-500 hover:text-black font-semibold transition-colors">← Back to Dashboard</button>
     </header>
 
-    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8">
+    <div class="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
       
-      <div class="bg-[#E2E2E2] p-8 rounded-3xl shadow-sm border border-gray-200 min-h-[580px] relative overflow-hidden flex flex-col">
+      <div class="lg:col-span-5 bg-[#E2E2E2] p-8 rounded-3xl shadow-sm border border-gray-200 h-[750px] flex flex-col relative overflow-hidden">
         
         <transition name="fade-slide" mode="out-in">
           
-          <div v-if="!selectedDailyDate" :key="`monthly-${currentYear}-${currentMonth}`" class="w-full flex-grow flex flex-col">
-            <h2 class="text-3xl font-semibold mb-1 tracking-tight">Monthly Summary</h2>
-            <p class="text-gray-500 font-medium mb-8">For {{ new Date(currentYear, currentMonth).toLocaleString('default', { month: 'long', year: 'numeric' }) }}</p>
+          <div :key="selectedDailyDate ? `daily-${selectedDailyDate}` : `monthly-${currentYear}-${currentMonth}`" class="w-full h-full flex flex-col">
             
-            <div class="space-y-8 flex-grow">
-              <div class="border-b border-gray-400 pb-6">
-                <p class="text-gray-500 font-semibold text-lg mb-4">Total Bookings</p>
-                <div class="space-y-3">
-                  <div v-for="(count, court) in monthlyStats.courts" :key="court" class="flex items-center gap-3">
-                    <span class="text-sm font-semibold text-gray-600 w-16">{{ court }}</span>
-                    <div class="flex-grow h-7 bg-transparent rounded-sm flex items-center">
-                      <div class="h-full bg-[#1C1C1C] flex items-center px-2 min-w-[2rem] transition-all duration-300" :style="{ width: `${Math.max((count / (monthlyStats.totalSlots || 1)) * 100, 5)}%` }">
-                        <span class="text-white text-xs font-semibold">{{ count }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div class="mt-6 pt-4 border-t border-gray-300 flex justify-between items-center">
-                  <div>
-                    <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-0.5">Total Slots</p>
-                    <p class="text-xl font-bold">{{ monthlyStats.totalSlots }}</p>
-                  </div>
-                  <div class="text-right">
-                    <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-0.5">Unique Orders</p>
-                    <p class="text-xl font-bold">{{ monthlyStats.totalOrders }}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <p class="text-gray-500 font-semibold text-lg mb-2 border-b border-gray-400 pb-2">Gross Revenue</p>
-                <p class="text-sm text-gray-500 font-medium mt-4">Total:</p>
-                <p class="text-2xl font-semibold tracking-tight mb-6">PHP {{ monthlyStats.grossRevenue.toLocaleString() }}</p>
-                
-                <button @click="viewMonthlyReceipts" class="bg-[#1C1C1C] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-black transition-colors w-full sm:w-auto">
-                  View Receipts
-                </button>
-              </div>
+            <div class="shrink-0 mb-6 relative">
+              <button v-if="selectedDailyDate" @click="clearDailySelection" class="absolute top-0 right-0 text-gray-400 hover:text-black transition-colors z-10 bg-white/50 rounded-full p-1">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+              <h2 class="text-3xl font-semibold mb-1 tracking-tight pr-8">{{ selectedDailyDate ? 'Daily Analytics' : 'Monthly Analytics' }}</h2>
+              <p class="text-gray-500 font-medium">For {{ selectedDailyDate ? formatDisplayDate(selectedDailyDate) : new Date(currentYear, currentMonth).toLocaleString('default', { month: 'long', year: 'numeric' }) }}</p>
             </div>
-          </div>
 
-          <div v-else :key="`daily-${selectedDailyDate}`" class="w-full flex-grow flex flex-col relative">
-            <button @click="clearDailySelection" class="absolute top-0 right-0 text-gray-400 hover:text-black transition-colors z-10 bg-[#E2E2E2] rounded-full p-1">
-              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-
-            <h2 class="text-3xl font-semibold mb-1 tracking-tight pr-8">Daily Summary</h2>
-            <p class="text-gray-500 font-medium mb-8">For {{ formatDisplayDate(selectedDailyDate) }}</p>
-            
-            <div class="space-y-8 flex-grow" v-if="dailyStats">
-              <div class="border-b border-gray-400 pb-6">
-                <p class="text-gray-500 font-semibold text-lg mb-4">Total Bookings</p>
-                <div class="space-y-3">
-                  <div v-for="(count, court) in dailyStats.courts" :key="court" class="flex items-center gap-3">
-                    <span class="text-sm font-semibold text-gray-600 w-16">{{ court }}</span>
-                    <div class="flex-grow h-7 bg-transparent rounded-sm flex items-center">
-                      <div class="h-full bg-[#1C1C1C] flex items-center px-2 min-w-[2rem] transition-all duration-300" :style="{ width: `${Math.max((count / (dailyStats.totalSlots || 1)) * 100, 5)}%` }">
-                        <span class="text-white text-xs font-semibold">{{ count }}</span>
-                      </div>
+            <div class="flex-grow overflow-y-auto custom-scrollbar pr-3 space-y-8 pb-6" v-if="selectedDailyDate ? dailyStats : monthlyStats">
+              
+              <div>
+                <h3 class="text-gray-900 font-bold text-lg mb-4 flex items-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  Financial Overview
+                </h3>
+                
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-1">Gross Revenue</p>
+                  <p class="text-2xl font-bold text-[#A9FC24] bg-[#1C1C1C] px-3 py-1.5 rounded-lg inline-block mb-4">
+                    ₱{{ (selectedDailyDate ? dailyStats : monthlyStats)!.financial.gross.toLocaleString() }}
+                  </p>
+                  
+                  <div class="flex flex-col gap-3 pt-4 border-t border-gray-100">
+                    <div class="flex justify-between items-center">
+                      <span class="text-sm font-semibold text-gray-500">Morning (8AM-3PM)</span>
+                      <span class="text-sm font-bold text-gray-900">₱{{ (selectedDailyDate ? dailyStats : monthlyStats)!.financial.morning.toLocaleString() }}</span>
                     </div>
-                  </div>
-                </div>
-
-                <div class="mt-6 pt-4 border-t border-gray-300 flex justify-between items-center">
-                  <div>
-                    <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-0.5">Total Slots</p>
-                    <p class="text-xl font-bold">{{ dailyStats.totalSlots }}</p>
-                  </div>
-                  <div class="text-right">
-                    <p class="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-0.5">Unique Orders</p>
-                    <p class="text-xl font-bold">{{ dailyStats.totalOrders }}</p>
+                    <div class="flex justify-between items-center">
+                      <span class="text-sm font-semibold text-gray-500">Evening (3PM-12AM)</span>
+                      <span class="text-sm font-bold text-gray-900">₱{{ (selectedDailyDate ? dailyStats : monthlyStats)!.financial.evening.toLocaleString() }}</span>
+                    </div>
                   </div>
                 </div>
               </div>
 
               <div>
-                <p class="text-gray-500 font-semibold text-lg mb-2 border-b border-gray-400 pb-2">Gross Revenue</p>
-                <p class="text-sm text-gray-500 font-medium mt-4">Total:</p>
-                <p class="text-2xl font-semibold tracking-tight mb-6">PHP {{ dailyStats.grossRevenue.toLocaleString() }}</p>
+                <h3 class="text-gray-900 font-bold text-lg mb-4 flex items-center gap-2">
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                  Court Utilization
+                </h3>
                 
-                <div class="flex flex-col sm:flex-row items-center gap-3">
-                  <button @click="viewDailyReceipts" class="bg-[#1C1C1C] text-white px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-black transition-colors shadow-sm w-full sm:w-auto">
-                    View Receipts
-                  </button>
-                  <button @click="clearDailySelection" class="bg-white text-gray-800 border border-gray-300 px-6 py-2.5 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm w-full sm:w-auto">
-                    ← Back to Monthly
-                  </button>
+                <div class="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+                  <div class="grid grid-cols-2 gap-y-4 gap-x-2">
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Physical Hours</p>
+                      <p class="text-lg font-black text-gray-800">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.courtHours }}</p>
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Available Hours</p>
+                      <p class="text-lg font-black text-gray-800">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.availableHours }}</p>
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Booked Hours</p>
+                      <p class="text-lg font-black text-blue-600">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.bookedHours }}</p>
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Unbooked Hours</p>
+                      <p class="text-lg font-black text-green-600">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.unbookedHours }}</p>
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Admin Blocked</p>
+                      <p class="text-lg font-black text-red-500">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.blockedHours }}</p>
+                    </div>
+                    <div>
+                      <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-0.5">Unique Orders</p>
+                      <p class="text-lg font-black text-gray-800">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.uniqueOrders }}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex gap-4">
+                  <div class="flex-1 bg-gray-900 rounded-2xl p-4 shadow-sm text-center">
+                    <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Utilization</p>
+                    <p class="text-2xl font-bold text-white">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.utilRate }}%</p>
+                  </div>
+                  <div class="flex-1 bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+                    <p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Vacancy</p>
+                    <p class="text-2xl font-bold text-gray-900">{{ (selectedDailyDate ? dailyStats : monthlyStats)!.utilization.vacRate }}%</p>
+                  </div>
                 </div>
               </div>
+
+              <div>
+                <h3 class="text-gray-900 font-bold text-sm mb-4 uppercase tracking-wider border-b border-gray-300 pb-2">Court Breakdown</h3>
+                <div class="space-y-3">
+                  <div v-for="(count, court) in (selectedDailyDate ? dailyStats : monthlyStats)!.courts" :key="court" class="flex items-center gap-3">
+                    <span class="text-xs font-semibold text-gray-600 w-16 shrink-0">{{ court }}</span>
+                    <div class="flex-grow h-6 bg-transparent rounded-sm flex items-center">
+                      <div class="h-full bg-[#1C1C1C] flex items-center justify-center px-2 min-w-[3.5rem] transition-all duration-300 rounded-md shadow-sm" :style="{ width: `${Math.max((count / ((selectedDailyDate ? dailyStats : monthlyStats)!.utilization.bookedHours || 1)) * 100, 5)}%` }">
+                        <span class="text-white text-[10px] font-bold whitespace-nowrap">{{ count }} hrs</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <div class="shrink-0 pt-4 border-t border-gray-300 mt-2 flex flex-col gap-2">
+              <button @click="selectedDailyDate ? viewDailyReceipts() : viewMonthlyReceipts()" class="bg-[#1C1C1C] text-[#A9FC24] w-full py-3.5 rounded-xl text-sm font-bold hover:bg-black transition-colors shadow-sm flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                View Approved Receipts
+              </button>
+              <button v-if="selectedDailyDate" @click="clearDailySelection" class="bg-white text-gray-800 border border-gray-300 w-full py-3 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm">
+                ← Back to Monthly Analytics
+              </button>
             </div>
           </div>
           
         </transition>
       </div>
 
-      <div class="lg:col-span-2 bg-[#E2E2E2] p-8 rounded-3xl shadow-sm border border-gray-200">
-        <div class="flex justify-center items-center mb-8 gap-4">
-          <button @click="changeMonth(-1)" class="p-2 hover:bg-gray-300 rounded-full transition-colors">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+      <div class="lg:col-span-7 bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-gray-100 flex flex-col h-[750px]">
+        
+        <div class="flex justify-center items-center mb-6 gap-4 shrink-0">
+          <button @click="changeMonth(-1)" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
           </button>
-          <div class="bg-gray-300/50 px-6 py-2 rounded-lg font-semibold text-gray-800 flex items-center gap-2 min-w-[140px] justify-center">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+          <div class="bg-gray-50 border border-gray-100 px-6 py-2 rounded-lg font-semibold text-gray-800 flex items-center gap-2 min-w-[140px] justify-center shadow-sm">
+            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
             {{ new Date(currentYear, currentMonth).toLocaleString('default', { month: 'long', year: 'numeric' }) }}
           </div>
-          <button @click="changeMonth(1)" class="p-2 hover:bg-gray-300 rounded-full transition-colors">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+          <button @click="changeMonth(1)" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
           </button>
         </div>
 
-        <div class="grid grid-cols-7 gap-[1px] bg-gray-300 border border-gray-300 rounded-xl overflow-hidden shadow-sm">
-          <div v-for="day in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="day" class="bg-[#EBEBEB] text-center text-xs font-bold tracking-widest text-gray-500 uppercase py-3">
+        <div class="grid grid-cols-7 gap-2 flex-grow">
+          <div v-for="day in ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']" :key="day" class="text-center text-[11px] font-bold tracking-widest text-gray-400 uppercase py-2 flex items-end justify-center">
             {{ day }}
           </div>
           
-          <div v-for="n in firstDayOfMonth" :key="'empty-'+n" class="h-28 bg-[#EBEBEB]"></div>
+          <div v-for="n in firstDayOfMonth" :key="'empty-'+n" class="bg-transparent rounded-xl"></div>
 
           <button 
             v-for="day in daysInMonth" 
             :key="day" 
             @click="navigateToDate(day)"
-            class="h-28 bg-[#EBEBEB] hover:bg-white transition-all flex flex-col items-center justify-center relative group"
-            :class="{ 'bg-white shadow-inner z-10': selectedDailyDate === `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` }"
+            class="bg-[#F8F9FA] hover:bg-gray-100 border border-gray-100 transition-all rounded-xl flex flex-col items-center justify-center relative group shadow-sm"
+            :class="{ 'ring-2 ring-gray-900 bg-white z-10 shadow-md': selectedDailyDate === `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` }"
           >
-            <span class="font-semibold text-xl text-gray-800 transition-transform group-hover:scale-110 group-hover:text-black"
-                  :class="{ 'scale-110 text-black': selectedDailyDate === `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` }">
+            <span class="font-medium text-lg text-gray-700 transition-transform group-hover:scale-110 group-hover:text-black"
+                  :class="{ 'scale-110 font-bold text-black': selectedDailyDate === `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` }">
               {{ day }}
             </span>
             <div v-if="selectedDailyDate === `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`" 
-                 class="w-1.5 h-1.5 bg-[#A9FC24] rounded-full absolute bottom-4"></div>
+                 class="w-1.5 h-1.5 bg-[#A9FC24] rounded-full absolute bottom-3 shadow-sm"></div>
           </button>
         </div>
+
       </div>
     </div>
   </div>
@@ -292,5 +329,16 @@ onMounted(fetchMonthlyData)
 .fade-slide-leave-to {
   opacity: 0;
   transform: translateX(12px);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #BDBDBD;
+  border-radius: 10px;
 }
 </style>
