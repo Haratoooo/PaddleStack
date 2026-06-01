@@ -15,20 +15,33 @@ const fetchReceipts = async () => {
   
   let query = supabase
     .from('bookings')
-    .select('full_name, receipt_url, booking_date, booking_reference')
+    .select('full_name, receipt_url, booking_date, booking_reference, created_at')
     .not('receipt_url', 'is', null) 
     .neq('status', 'Declined')
     .order('created_at', { ascending: false })
 
   if (route.query.date) {
-    query = query.eq('booking_date', route.query.date)
+    const targetDate = new Date(route.query.date as string)
+    const nextDate = new Date(targetDate)
+    nextDate.setDate(targetDate.getDate() + 1) 
+    
+    const startStr = targetDate.toISOString().split('T')[0]
+    const endStr = nextDate.toISOString().split('T')[0]
+    
+    query = query.gte('created_at', startStr).lt('created_at', endStr)
+
   } else if (route.query.month && route.query.year) {
     const y = parseInt(route.query.year as string)
     const m = parseInt(route.query.month as string)
-    const startOfMonth = `${y}-${String(m).padStart(2, '0')}-01`
-    const endOfMonth = new Date(y, m, 0).toISOString().split('T')[0]
     
-    query = query.gte('booking_date', startOfMonth).lte('booking_date', endOfMonth)
+    const startOfMonth = `${y}-${String(m).padStart(2, '0')}-01`
+    
+
+    const nextM = m === 12 ? 1 : m + 1
+    const nextY = m === 12 ? y + 1 : y
+    const startOfNextMonth = `${nextY}-${String(nextM).padStart(2, '0')}-01`
+    
+    query = query.gte('created_at', startOfMonth).lt('created_at', startOfNextMonth)
   }
 
   const { data, error } = await query
@@ -47,6 +60,16 @@ const fetchReceipts = async () => {
   }
   
   isLoading.value = false
+}
+
+const formatTransactionDate = (timestamp: string) => {
+  return new Date(timestamp).toLocaleString('en-US', { 
+    month: 'short', 
+    day: 'numeric', 
+    hour: 'numeric', 
+    minute: '2-digit', 
+    hour12: true 
+  })
 }
 
 const pageTitle = computed(() => {
@@ -111,10 +134,18 @@ onMounted(fetchReceipts)
             
             <div class="mb-3">
               <p class="font-bold text-gray-900 truncate">{{ receipt.full_name }}</p>
-              <div class="flex items-center gap-2 mt-0.5">
-                <span class="text-xs text-gray-500 font-medium">{{ receipt.booking_date }}</span>
-                <span class="text-gray-300">•</span>
-                <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-mono font-bold">{{ receipt.booking_reference }}</span>
+              
+              <div class="flex flex-col gap-1 mt-1">
+                <span class="text-xs text-green-600 font-bold flex items-center gap-1">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  Paid: {{ formatTransactionDate(receipt.created_at) }}
+                </span>
+                
+                <div class="flex items-center gap-2">
+                  <span class="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-mono font-bold">{{ receipt.booking_reference }}</span>
+                  <span class="text-gray-300">•</span>
+                  <span class="text-xs text-gray-500 font-medium">Play Date: {{ receipt.booking_date }}</span>
+                </div>
               </div>
             </div>
 
