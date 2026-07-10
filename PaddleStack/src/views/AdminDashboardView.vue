@@ -170,7 +170,7 @@ const gridItems = computed(() => {
           
           const isSameRef = slotData.booking_reference && slotData.booking_reference === nextSlotData.booking_reference
 
-          if (isSameStatus && isSameRef) {
+          if (isSameStatus && isSameRef && slotData.status !== 'Blocked') {
             span++
           } else {
             break

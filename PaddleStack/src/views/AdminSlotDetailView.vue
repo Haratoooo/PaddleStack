@@ -156,6 +156,19 @@ const executeConfirm = async () => {
     }, 1500)
   } 
   else if (confirmModal.value.type === 'block') {
+    const { data: conflictCheck, error: checkError } = await supabase
+    .from('bookings')
+    .select('id')
+    .eq('court', courtParam)
+    .eq('time_slot', timeSlotParam)
+    .eq('booking_date', dateParam)
+    .neq('status', 'Declined')
+
+  if (!checkError && conflictCheck && conflictCheck.length > 0) {
+    showToast('Cannot block. Slot was just booked by a customer!', 'error')
+    setTimeout(() => router.push('/admin/dashboard'), 2000)
+    return
+  }
     await supabase.from('bookings').insert({
       booking_reference: 'ADMIN_BLOCK',
       full_name: 'Admin Blocked',
