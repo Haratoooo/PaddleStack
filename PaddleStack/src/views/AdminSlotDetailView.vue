@@ -15,6 +15,16 @@ const dateParam = route.query.date as string
 const orderSlots = ref<any[]>([])
 const status = ref('AVAILABLE')
 const isLoading = ref(true)
+const searchQuery = ref((route.query.ref as string) || '')
+
+
+const handleSearch = () => {
+  const query = searchQuery.value.trim()
+  if (!query) return
+  
+
+  window.location.href = `/admin/slot?ref=${query.toUpperCase()}`
+}
 
 const confirmModal = ref({
   show: false,
@@ -76,11 +86,17 @@ onMounted(async () => {
       }
     }
 
+  
     if (fetchedData && fetchedData.length > 0) {
       orderSlots.value = fetchedData.sort((a, b) => new Date(a.booking_date).getTime() - new Date(b.booking_date).getTime())
       status.value = fetchedData[0].status.toUpperCase()
     } else {
-      status.value = 'AVAILABLE'
+
+      if (refCode) {
+        status.value = 'NOT_FOUND'
+      } else {
+        status.value = 'AVAILABLE'
+      }
     }
 
   } catch (err) {
@@ -204,16 +220,63 @@ const executeConfirm = async () => {
       </div>
     </transition>
 
-    <header class="flex justify-between items-center px-6 md:px-16 py-4 border-b border-gray-200">
-      <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
-      <button @click="router.push('/admin/dashboard')" class="text-gray-600 hover:text-black font-medium transition-colors">
-        Back to Dashboard
+    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-30 gap-4">
+  
+
+  <div class="flex-1 flex justify-start">
+    <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
+  </div>
+
+
+  <div class="flex-[2] flex justify-center max-w-md w-full">
+    <form @submit.prevent="handleSearch" class="relative w-full">
+      <input 
+        type="text" 
+        v-model="searchQuery"
+        placeholder="Search Reference (e.g. ADMIN-123)" 
+        class="w-full bg-gray-50 border border-gray-200 text-sm px-4 py-2.5 rounded-full focus:ring-2 focus:ring-[#A9FC24] outline-none pl-10 font-medium text-gray-800 transition-all placeholder:font-normal"
+      />
+     
+      <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+  
+      <button 
+        v-if="searchQuery" 
+        type="button" 
+        @click="searchQuery = ''" 
+        class="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
+      >
+         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+         </svg>
       </button>
-    </header>
+    </form>
+  </div>
+
+  <div class="flex-1 flex justify-end">
+    <button @click="router.push('/admin/dashboard')" class="text-gray-600 hover:text-black font-medium transition-colors">
+      Back to Dashboard
+    </button>
+  </div>
+  
+</header>
 
     <main class="flex justify-center px-4 py-12 relative">
       
       <div v-if="isLoading" class="text-gray-500 font-medium animate-pulse">Loading details...</div>
+      <div v-else-if="status === 'NOT_FOUND'" class="bg-[#EBEBEB] rounded-[24px] p-8 md:p-10 w-full max-w-lg shadow-sm flex flex-col items-center justify-center text-center py-16 relative">
+        <button @click="router.push('/admin/dashboard')" class="absolute top-6 right-6 md:top-8 md:right-8 bg-white/60 hover:bg-white text-gray-500 hover:text-gray-900 px-3 py-1.5 rounded-lg shadow-sm text-xs font-bold flex items-center gap-1.5 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+          Back
+        </button>
+
+        <svg class="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <h3 class="text-2xl font-bold text-[#4A4A4A] mb-2">Booking Not Found</h3>
+        <p class="text-[#6B6B6B] font-medium">We couldn't find any booking matching the reference <br><span class="font-bold text-[#1C1C1C] block mt-1 text-lg">"{{ refCode }}"</span></p>
+      </div>
 
       <div v-else class="bg-[#EBEBEB] rounded-[24px] p-8 md:p-10 w-full max-w-lg shadow-sm relative">
         

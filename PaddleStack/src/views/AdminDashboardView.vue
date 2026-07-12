@@ -20,6 +20,19 @@ const manualFile = ref<File | null>(null)
 const manualPreview = ref<string | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
+const searchQuery = ref('')
+
+
+const handleSearch = () => {
+  const query = searchQuery.value.trim()
+  if (!query) return
+  
+  router.push({
+    path: '/admin/slot', 
+    query: { ref: query.toUpperCase() } 
+  })
+  
+}
 const getLocalDateString = (d = new Date()) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -479,12 +492,43 @@ const handleLogout = async () => {
       </div>
     </div>
 
-    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-30">
-      <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
-      <button @click="handleLogout" class="text-gray-600 hover:text-black font-medium transition-colors">
-        Logout
+    <header class="flex justify-between items-center px-6 md:px-16 py-4 bg-white border-b border-gray-200 sticky top-0 z-30 gap-4">
+  
+  <div class="flex-1 flex justify-start">
+    <img :src="darkLogo" alt="PaddleStack" class="h-8 md:h-9" />
+  </div>
+
+  <div class="flex-[2] flex justify-center max-w-md w-full">
+    <form @submit.prevent="handleSearch" class="relative w-full">
+      <input 
+        type="text" 
+        v-model="searchQuery"
+        placeholder="Search Reference (e.g. ADMIN-123)" 
+        class="w-full bg-gray-50 border border-gray-200 text-sm px-4 py-2.5 rounded-full focus:ring-2 focus:ring-[#A9FC24] outline-none pl-10 font-medium text-gray-800 transition-all placeholder:font-normal"
+      />
+      <svg class="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+      </svg>
+      <button 
+        v-if="searchQuery" 
+        type="button" 
+        @click="searchQuery = ''" 
+        class="absolute right-3.5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-700 transition-colors"
+      >
+         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+         </svg>
       </button>
-    </header>
+    </form>
+  </div>
+
+  <div class="flex-1 flex justify-end">
+    <button @click="handleLogout" class="text-gray-600 hover:text-black font-medium transition-colors">
+      Logout
+    </button>
+  </div>
+  
+</header>
 
     <main class="max-w-[1600px] mx-auto px-4 mt-8 relative">
       <div class="flex flex-col xl:flex-row gap-8 items-start">
