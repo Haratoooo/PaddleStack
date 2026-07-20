@@ -110,6 +110,21 @@ const totalPrice = computed(() => {
   return orderSlots.value.reduce((sum, slot) => sum + (slot.price || 0), 0)
 })
 
+
+const imageFailedToLoad = ref(false)
+
+// Computes the clean filename without any Supabase tokens attached
+const cleanFileName = computed(() => {
+  const url = customerInfo.value?.receipt_url
+  if (!url) return 'the file'
+  
+
+  const urlEnd = url.split('/').pop() || 'the file'
+  
+
+  return urlEnd.split('?')[0]
+})
+
 const handleApprove = async () => {
   if (orderSlots.value.length === 0) return
   
@@ -350,11 +365,17 @@ const executeConfirm = async () => {
             <p class="text-[#6B6B6B] text-xs font-medium mb-2">Proof of Payment</p>
             <div class="w-full bg-[#2A2A2A] rounded-xl overflow-hidden border-2 border-dashed border-gray-400 flex items-center justify-center min-h-[200px]">
                <img 
-                 v-if="customerInfo?.receipt_url" 
+                 v-if="customerInfo?.receipt_url && !imageFailedToLoad" 
                  :src="customerInfo.receipt_url" 
+                 @error="imageFailedToLoad = true"
                  alt="GCash Receipt" 
                  class="w-full h-auto max-h-[400px] object-contain" 
                />
+               <div v-else-if="customerInfo?.receipt_url && imageFailedToLoad" class="text-gray-300 font-medium text-sm p-8 text-center flex flex-col items-center gap-2">
+                 <svg class="w-8 h-8 text-gray-400 mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
+                 <span>Receipt archived to save space.</span>
+                 <span>Look for <strong class="text-white">{{ cleanFileName }}</strong> on Google Drive.</span>
+               </div>
                <span v-else class="text-gray-400 font-medium text-sm p-8 text-center">
                  No receipt attached
                </span>
